@@ -1,0 +1,110 @@
+// Prueba el script inyectado en Chromium real: pop-ups, scripts/iframes de anuncios,
+// capas invisibles atrapa-clics, enlaces _blank y controles de vídeo con el mando.
+import { createRequire } from 'node:module';
+const { chromium } = createRequire(import.meta.url)('playwright');
+import http from 'node:http';
+import { spawnSync } from 'node:child_process';
+
+const out = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e',
+  `import { buildInjectedScript } from './src/core/injected.ts';
+   import { hostsForInjection } from './src/core/adblock.ts';
+   process.stdout.write(buildInjectedScript(hostsForInjection()));`], { encoding: 'utf8' });
+if (out.status !== 0) { console.error(out.stderr); process.exit(1); }
+const SCRIPT = out.stdout;
+
+const page_html = `<!doctype html><html><head>
+<script src="https://pagead2.googlesyndication.com/ad.js"></script></head><body>
+<a id="ext" href="/other" target="_blank">enlace</a>
+<ins class="adsbygoogle" style="display:block;width:300px;height:250px">ad</ins>
+<video id="v" width="640" height="360" muted src="/v.mp4"></video>
+<div id="trap" style="position:fixed;inset:0;z-index:9999;opacity:0" onclick="window.__trapped=1"></div>
+<script>
+  window.openResult = window.open('https://popads.net/x');
+  var s = document.createElement('script'); s.src = 'https://cdn.popcash.net/pop.js'; document.body.appendChild(s);
+  var f = document.createElement('iframe'); f.setAttribute('src', 'https://ads.exoclick.com/frame'); document.body.appendChild(f);
+  window.fetchBlocked = null;
+  fetch('https://www.google-analytics.com/collect').then(function(){ window.fetchBlocked = false; }, function(){ window.fetchBlocked = true; });
+  window.alert('molesto');
+</script></body></html>`;
+
+const server = http.createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end(page_html); });
+await new Promise((r) => server.listen(0, r));
+const base = `http://127.0.0.1:${server.address().port}`;
+
+const browser = await chromium.launch();
+const ctx = await browser.newContext();
+const externalRequests = [];
+await ctx.route('**/*', (route) => {
+  const u = route.request().url();
+  if (!u.startsWith(base)) { externalRequests.push(u); return route.abort(); }
+  return route.continue();
+});
+const popups = [];
+
+const page = await ctx.newPage();
+ctx.on('page', (p) => popups.push(p));
+const messages = [];
+await page.exposeFunction('__rnPost', (m) => messages.push(JSON.parse(m)));
+await page.addInitScript(`window.ReactNativeWebView = { postMessage: function(m){ window.__rnPost(m); } };`);
+await page.addInitScript(SCRIPT);
+page.on('dialog', (d) => { externalRequests.push('DIALOG:' + d.message()); d.dismiss(); });
+await page.goto(base + '/');
+await page.waitForTimeout(300);
+
+const r = await page.evaluate(() => ({
+  openResultClosed: window.openResult && window.openResult.closed,
+  popScript: !!document.querySelector('script[src*="popcash"]'),
+  adIframe: !!document.querySelector('iframe[src*="exoclick"]'),
+  insHidden: getComputedStyle(document.querySelector('ins.adsbygoogle')).display === 'none',
+  linkTarget: document.getElementById('ext').getAttribute('target'),
+  fetchBlocked: window.fetchBlocked,
+  blocked: window.__lb.blocked(),
+}));
+await page.evaluate(() => history.pushState({}, '', '/seccion'));
+await page.mouse.click(300, 300);
+const trap = await page.evaluate(() => ({ trapped: !!window.__trapped, trapGone: !document.getElementById('trap') }));
+
+// Idempotencia: inyectar dos veces no debe romper nada
+await page.evaluate(SCRIPT);
+
+let fails = 0;
+const check = (name, ok) => { console.log(`${ok ? 'OK  ' : 'FAIL'} ${name}`); if (!ok) fails++; };
+check('window.open devuelve ventana falsa', r.openResultClosed === true);
+check('no se abrió ninguna ventana nueva', popups.length === 0);
+check('script de pop-under eliminado', !r.popScript);
+check('iframe de anuncios eliminado', !r.adIframe);
+check('contenedor adsbygoogle oculto', r.insHidden);
+check('enlace _blank convertido a _self', r.linkTarget === '_self');
+check('fetch a rastreador bloqueado', r.fetchBlocked === true);
+check('alert() silenciado', !externalRequests.some((u) => u.startsWith('DIALOG')));
+check('capa invisible atrapa-clics eliminada sin disparar', !trap.trapped && trap.trapGone);
+check('ninguna petición salió a dominios de anuncios',
+  !externalRequests.some((u) => /popcash|exoclick|google-analytics|popads/.test(u)));
+check('contador de bloqueos > 0', r.blocked > 0);
+await page.waitForTimeout(1700);
+check('navegación SPA notificada a la app', messages.some((m) => m.type === 'nav' && m.data.endsWith('/seccion')));
+check('mensajes enviados a la app (stats/ready)', messages.some((m) => m.type === 'stats') && messages.some((m) => m.type === 'ready'));
+
+// Camino de respaldo: inyección tardía (onLoadEnd -> injectJavaScript)
+const late = await ctx.newPage();
+late.on('dialog', (d) => d.dismiss());
+await late.goto(base + '/');
+await late.evaluate(SCRIPT);
+const l = await late.evaluate(() => {
+  const w = window.open('https://example.org');
+  const a = document.createElement('a'); a.href = '/x'; a.target = '_blank'; document.body.appendChild(a);
+  const i = document.createElement('iframe'); i.src = 'https://adnxs.com/x'; document.body.appendChild(i);
+  return new Promise((res) => setTimeout(() => res({
+    fake: w && w.closed === true, target: a.getAttribute('target'), iframeSrc: i.getAttribute('src'),
+    css: !!document.getElementById('__lb_css'),
+  }), 120));
+});
+check('inyección tardía: window.open bloqueado', l.fake);
+check('inyección tardía: _blank nuevo convertido', l.target === '_self');
+check('inyección tardía: src de anuncio ignorado', !l.iframeSrc);
+check('inyección tardía: CSS de limpieza aplicado', l.css);
+
+await browser.close();
+server.close();
+console.log(fails ? `\n${fails} fallo(s)` : '\nTodo OK');
+process.exit(fails ? 1 : 0);

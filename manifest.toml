@@ -1,0 +1,19 @@
+# Manifiesto de la app para Vega OS (Fire TV).
+# Compáralo con el manifest.toml que genera `vega project generate` para tu versión del SDK
+# y conserva los valores de [components] de esa plantilla si difieren.
+schema-version = 1
+
+[package]
+title = "Navegador Ligero"
+version = "1.0.0"
+id = "com.sslfree.browser"
+
+[components]
+[[components.interactive]]
+id = "com.sslfree.browser.main"
+runtime-module = "/com.amazon.kepler.keplerscript_4@IKeplerScript_0"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]
+
+# El componente WebView (@amazon-devices/webview) se enlaza automáticamente (autolink),
+# no hace falta declararlo aquí.

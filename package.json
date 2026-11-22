@@ -1,0 +1,25 @@
+{
+  "name": "navegador-ligero",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Navegador súper ligero para Fire TV (Vega OS) con bloqueo de pop-ups y anuncios y controles de vídeo con el mando.",
+  "main": "index.js",
+  "scripts": {
+    "start": "react-native start",
+    "build:debug": "vega build --build-type Debug",
+    "build:release": "vega build --build-type Release",
+    "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
+    "test:browser": "node tests/injected.browser.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@amazon-devices/react-native-kepler": "~4.0.2",
+    "@amazon-devices/webview": "~4.0.5",
+    "react": "19.2.0",
+    "react-native": "0.83.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.1",
+    "typescript": "^5.4.0"
+  }
+}
