@@ -13,11 +13,13 @@
  *  7. Cursor virtual: flechas = mover puntero, OK = clic, bordes = desplazar. window.__lb.cursor() lo activa/desactiva.
  *  8. YouTube: pide la mejor calidad disponible hasta 1080p.
  */
-export function buildInjectedScript(hosts: readonly string[]): string {
+export function buildInjectedScript(hosts: readonly string[], adPathSource = ''): string {
   return `(function(){
 if (window.__lb) { return; }
 var HOSTS = {};
 ${JSON.stringify(hosts)}.forEach(function(h){ HOSTS[h] = 1; });
+/* peticiones de anuncios de vídeo por su forma (VAST/VMAP, Ad Manager), en cualquier dominio */
+var AD_PATH = ${adPathSource ? `new RegExp(${JSON.stringify(adPathSource)}, 'i')` : 'null'};
 var blockedCount = 0, statT = 0;
 function bump(){ blockedCount++; if (!statT) { statT = setTimeout(function(){ statT = 0; post("stats", blockedCount); }, 1500); } }
 function post(type, data){
@@ -33,9 +35,10 @@ function blocked(u){
   while (h) {
     if (HOSTS[h]) { bump(); return true; }
     var i = h.indexOf('.');
-    if (i < 0) return false;
+    if (i < 0) break;
     h = h.slice(i + 1);
   }
+  if (AD_PATH && u && AD_PATH.test(String(u))) { bump(); return true; }
   return false;
 }
 var lb = window.__lb = { blocked: function(){ return blockedCount; } };
@@ -87,11 +90,104 @@ Element.prototype.setAttribute = function(n, v){
   return osa.call(this, n, v);
 };
 
+/* 9. Anuncios de YouTube (se pone aquí para que JSON.parse se intercepte antes de que cargue la web):
+   a) se borran los datos de anuncios de las respuestas del reproductor (adPlacements, playerAds, adSlots);
+   b) si aun así empieza un anuncio, se silencia, se salta al final y se pulsa "Saltar". */
+var IS_YT = /(^|\\.)youtube(-nocookie)?\\.com$/.test(location.hostname);
+var YT_CSS = 'ytm-promoted-sparkles-web-renderer,ytm-promoted-video-renderer,ytm-companion-ad-renderer,ytm-companion-slot,' +
+  'ad-slot-renderer,ytm-ad-slot-renderer,ytd-ad-slot-renderer,ytd-promoted-sparkles-web-renderer,ytd-display-ad-renderer,' +
+  'ytd-in-feed-ad-layout-renderer,ytd-banner-promo-renderer,ytd-statement-banner-renderer,ytm-statement-banner-renderer,' +
+  'ytd-merch-shelf-renderer,ytm-merch-shelf-renderer,ytm-paid-content-overlay-renderer,panel-ad-header-image-lockup-view-model,' +
+  '#player-ads,#masthead-ad,.ytp-ad-overlay-container,.ytp-ad-text-overlay,.ytp-ad-image-overlay,';
+/* (sin :has(): si el WebView no lo soporta invalidaría toda la regla CSS) */
+var AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
+function ytPrune(o){
+  if (!o || typeof o !== 'object') return o;
+  var ts = [o, o.playerResponse, o.response && o.response.playerResponse], hit = 0;
+  if (Array.isArray(o)) for (var j = 0; j < o.length && j < 8; j++) ts.push(o[j], o[j] && o[j].playerResponse);
+  for (var i = 0; i < ts.length; i++) {
+    var t = ts[i];
+    if (t && typeof t === 'object') for (var k = 0; k < AD_KEYS.length; k++) if (AD_KEYS[k] in t) { delete t[AD_KEYS[k]]; hit++; }
+  }
+  if (hit) bump();
+  return o;
+}
+if (IS_YT) {
+  var oParse = JSON.parse;
+  JSON.parse = function(){ return ytPrune(oParse.apply(this, arguments)); };
+  if (window.Response && Response.prototype.json) {
+    var oJson = Response.prototype.json;
+    Response.prototype.json = function(){ return oJson.call(this).then(ytPrune); };
+  }
+  ['ytInitialPlayerResponse', 'ytInitialData'].forEach(function(n){
+    var val = window[n] ? ytPrune(window[n]) : undefined;
+    try { Object.defineProperty(window, n, { configurable: true, get: function(){ return val; }, set: function(v){ val = ytPrune(v); } }); } catch(e){}
+  });
+}
+
+/* 10. Saltador universal de anuncios de vídeo. Reconoce el estado "anuncio" de los reproductores más usados
+   (YouTube, Google IMA, Video.js, JW Player, Bitmovin, Flowplayer, Clappr, Brightcove...) y, mientras dura:
+   pulsa "Saltar", silencia el vídeo del anuncio y lo lleva al final. Sólo trabaja si la página tiene vídeos. */
+var AD_STATE = '.html5-video-player.ad-showing,.html5-video-player.ad-interrupting,.vjs-ad-playing,.vjs-ad-loading,' +
+  '.jw-flag-ads,.jw-flag-ads-vpaid,.bmpui-ui-skin-ads,.bmpui-player-state-ad,.fp-is-ad,.is-ad-playing,.ad-playing,' +
+  '[data-ad-playing="true"],.bc-player-ad-playing,.vjs-ad-content-resuming';
+var AD_LAYER = '.ima-ad-container,.videoAdUi,[id^="ima-ad"],.jw-plugin-vast,.vjs-ima,.ad-container video,.preroll-container,' +
+  '[class*="preroll"],[id*="preroll"],[class*="vast-player"],[class*="vpaid"]';
+var SKIP_BTN = '.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-ad-skip-button-container button,' +
+  '.videoAdUiSkipButton,.videoAdUiSkipContainer button,.jw-skip,.jw-skip-icon,.vjs-ad-skip,.ima-skip-button,.bmpui-ui-skip,' +
+  '[class*="skip-ad"],[class*="skipAd"],[class*="ad-skip"],[class*="adSkip"],[class*="skip_ad"],[class*="SkipAd"],' +
+  /* sólo botones que hablan de anuncios: un "Saltar intro" no debe pulsarse solo */
+  '[aria-label*="kip ad"],[aria-label*="kip Ad"],[aria-label*="altar anuncio"],[aria-label*="mitir anuncio"]';
+var mutedByUs = [];
+function visibleEl(el){ var r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 && getComputedStyle(el).visibility !== 'hidden'; }
+function fastForwardAd(v){
+  if (!v || v.__lbContent) return;
+  if (!v.muted) { v.muted = true; mutedByUs.push(v); }
+  try { v.playbackRate = 16; } catch(e){}
+  if (isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 0.3) { try { v.currentTime = v.duration - 0.1; } catch(e){} bump(); }
+}
+function skipAds(){
+  if (!document.getElementsByTagName('video').length) return;
+  var acted = false, i, j, list;
+  /* reproductores en estado "anuncio": el propio vídeo del reproductor es el anuncio */
+  list = document.querySelectorAll(AD_STATE);
+  for (i = 0; i < list.length; i++) {
+    var vs = list[i].querySelectorAll('video');
+    for (j = 0; j < vs.length; j++) fastForwardAd(vs[j]);
+    acted = true;
+  }
+  /* capas de anuncio (IMA, VAST...) con su propio <video> encima del contenido */
+  list = document.querySelectorAll(AD_LAYER);
+  for (i = 0; i < list.length; i++) {
+    var el = list[i];
+    if (el.tagName === 'VIDEO') { if (visibleEl(el)) { fastForwardAd(el); acted = true; } continue; }
+    if (!visibleEl(el)) continue;
+    var av = el.querySelectorAll('video');
+    for (j = 0; j < av.length; j++) { fastForwardAd(av[j]); acted = true; }
+  }
+  /* botones "Saltar anuncio" visibles en cualquier sitio */
+  list = document.querySelectorAll(SKIP_BTN);
+  for (i = 0; i < list.length; i++) if (visibleEl(list[i])) { try { list[i].click(); } catch(e){} acted = true; }
+  /* fin del anuncio: devolver el sonido sólo a los vídeos que silenciamos nosotros */
+  if (!acted && mutedByUs.length) {
+    for (i = 0; i < mutedByUs.length; i++) { try { mutedByUs[i].muted = false; mutedByUs[i].playbackRate = 1; } catch(e){} }
+    mutedByUs = [];
+  }
+}
+lb.skipAds = skipAds;
+setInterval(skipAds, 300);
+
 /* 3. Limpieza del DOM */
 var CSS = 'ins.adsbygoogle,[id^="google_ads"],[id^="div-gpt-ad"],[class*="adsbygoogle"],' +
   '[id^="taboola"],[class^="taboola"],.OUTBRAIN,[data-ad],[data-ad-slot],[data-adunit],' +
   'iframe[src*="ads"],iframe[id*="google_ads"],.ad-banner,.ad-container,.ad-wrapper,.ad-slot,' +
-  '.advertisement,#ad-banner,.sponsored,.popup-overlay,.modal-ad,[class*="popunder"]' +
+  '.advertisement,#ad-banner,.sponsored,.popup-overlay,.modal-ad,[class*="popunder"],' +
+  /* anuncios incrustados habituales (GPT de Google, AMP, Taboola/Outbrain, bloques marcados como publicidad) */
+  'amp-ad,amp-embed,amp-sticky-ad,[id*="google_ads_iframe"],[data-google-query-id],iframe[src*="doubleclick.net"],' +
+  'iframe[src*="googlesyndication"],iframe[src*="amazon-adsystem"],.adsbox,.adslot,.ad-slot,.ad-unit,.ad_unit,.ads-container,' +
+  '.ad-placeholder,.advert,.advertising,.adsbygoogle,[aria-label="Advertisement"],[aria-label="Publicidad"],[aria-label="Anuncio"],' +
+  '.trc_rbox_container,.ob-widget,.ob-smartfeed-wrapper,[data-testid="ad"],[data-ad-unit],[data-ad-container],' +
+  (IS_YT ? YT_CSS : '') + '#__lb_none' +
   '{display:none!important;visibility:hidden!important}';
 function addStyle(){
   if (document.getElementById('__lb_css')) return;

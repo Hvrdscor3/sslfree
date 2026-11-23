@@ -7,8 +7,8 @@ import { spawnSync } from 'node:child_process';
 
 const out = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e',
   `import { buildInjectedScript } from './src/core/injected.ts';
-   import { hostsForInjection } from './src/core/adblock.ts';
-   process.stdout.write(buildInjectedScript(hostsForInjection()));`], { encoding: 'utf8' });
+   import { AD_PATH_RE, hostsForInjection } from './src/core/adblock.ts';
+   process.stdout.write(buildInjectedScript(hostsForInjection(), AD_PATH_RE.source));`], { encoding: 'utf8' });
 if (out.status !== 0) { console.error(out.stderr); process.exit(1); }
 const SCRIPT = out.stdout;
 
@@ -16,6 +16,9 @@ const page_html = `<!doctype html><html><head>
 <script src="https://pagead2.googlesyndication.com/ad.js"></script></head><body>
 <a id="ext" href="/other" target="_blank">enlace</a>
 <ins class="adsbygoogle" style="display:block;width:300px;height:250px">ad</ins>
+<div id="gpt" data-google-query-id="abc" style="height:90px">gpt</div><amp-ad id="amp" style="display:block">amp</amp-ad>
+<div id="tb" class="trc_rbox_container">taboola</div><div id="ariaad" aria-label="Publicidad">pub</div>
+<div id="real" class="header-load-more">contenido real</div>
 <video id="v" width="640" height="360" muted src="/v.mp4"></video>
 <div id="trap" style="position:fixed;inset:0;z-index:9999;opacity:0" onclick="window.__trapped=1"></div>
 <script>
@@ -56,6 +59,8 @@ const r = await page.evaluate(() => ({
   popScript: !!document.querySelector('script[src*="popcash"]'),
   adIframe: !!document.querySelector('iframe[src*="exoclick"]'),
   insHidden: getComputedStyle(document.querySelector('ins.adsbygoogle')).display === 'none',
+  embedsHidden: ['gpt', 'amp', 'tb', 'ariaad'].every((id) => getComputedStyle(document.getElementById(id)).display === 'none'),
+  realShown: getComputedStyle(document.getElementById('real')).display !== 'none',
   linkTarget: document.getElementById('ext').getAttribute('target'),
   fetchBlocked: window.fetchBlocked,
   blocked: window.__lb.blocked(),
@@ -74,6 +79,8 @@ check('no se abrió ninguna ventana nueva', popups.length === 0);
 check('script de pop-under eliminado', !r.popScript);
 check('iframe de anuncios eliminado', !r.adIframe);
 check('contenedor adsbygoogle oculto', r.insHidden);
+check('anuncios incrustados (GPT, AMP, Taboola, "Publicidad") ocultos', r.embedsHidden);
+check('el contenido normal no se oculta', r.realShown);
 check('enlace _blank convertido a _self', r.linkTarget === '_self');
 check('fetch a rastreador bloqueado', r.fetchBlocked === true);
 check('alert() silenciado', !externalRequests.some((u) => u.startsWith('DIALOG')));
@@ -157,6 +164,70 @@ const lastCur = navMsgs.filter((m) => m.type === 'cur').pop();
 check('app: el cursor de la página está oculto (lo dibuja la app)', n1.disp === 'none');
 check('app: OK sobre un enlace de texto lo abre', n1.hash === '#hit');
 check('app: posición enviada en proporción (0,5 ; 0,5)', !!lastCur && Math.abs(lastCur.data[0] - 0.5) < 0.01 && Math.abs(lastCur.data[1] - 0.5) < 0.01);
+
+// Anuncios de YouTube: se simula www.youtube.com (la ruta intercepta el dominio, no sale a internet)
+const yt = await ctx.newPage();
+yt.on('dialog', (d) => d.dismiss());
+await yt.route('https://www.youtube.com/**', (route) => {
+  const u = route.request().url();
+  if (u.endsWith('/player')) return route.fulfill({ contentType: 'application/json',
+    body: JSON.stringify({ videoDetails: { videoId: 'x' }, adPlacements: [{ a: 1 }], playerAds: [{ b: 1 }], adSlots: [1] }) });
+  return route.fulfill({ contentType: 'text/html', body: `<!doctype html><body>
+    <script>var ytInitialPlayerResponse = { videoDetails: { videoId: 'x' }, adPlacements: [1], playerAds: [2] };</script>
+    <div id="movie_player" class="html5-video-player ad-showing"><video id="v" muted></video>
+      <button class="ytp-ad-skip-button-modern" onclick="window.__skipped=1">Saltar</button></div>
+    <ytm-promoted-sparkles-web-renderer id="promo">promo</ytm-promoted-sparkles-web-renderer>
+    <div id="ok">contenido</div></body>` });
+});
+await yt.addInitScript(SCRIPT);
+await yt.goto('https://www.youtube.com/watch?v=x');
+await yt.waitForTimeout(400);
+const ytr = await yt.evaluate(async () => {
+  const parsed = JSON.parse(JSON.stringify({ playerResponse: { adPlacements: [1], videoDetails: {} } }));
+  const fetched = await fetch('/youtubei/v1/player').then((r) => r.json());
+  return {
+    initial: 'adPlacements' in window.ytInitialPlayerResponse || 'playerAds' in window.ytInitialPlayerResponse,
+    initialKept: !!window.ytInitialPlayerResponse.videoDetails,
+    parsed: 'adPlacements' in parsed.playerResponse,
+    fetched: 'adPlacements' in fetched || 'playerAds' in fetched || 'adSlots' in fetched, fetchedKept: !!fetched.videoDetails,
+    skipped: !!window.__skipped,
+    promoHidden: getComputedStyle(document.getElementById('promo')).display === 'none',
+    okShown: getComputedStyle(document.getElementById('ok')).display !== 'none',
+  };
+});
+check('YouTube: anuncios quitados de ytInitialPlayerResponse (y el vídeo se conserva)', !ytr.initial && ytr.initialKept);
+check('YouTube: anuncios quitados de JSON.parse', !ytr.parsed);
+check('YouTube: anuncios quitados de fetch().json() del reproductor', !ytr.fetched && ytr.fetchedKept);
+check('YouTube: si sale un anuncio se pulsa "Saltar"', ytr.skipped);
+check('YouTube: promociones del feed ocultas sin tocar el resto', ytr.promoHidden && ytr.okShown);
+
+// Saltador universal: un reproductor cualquiera con anuncio de Google IMA encima del contenido
+const ima = await ctx.newPage();
+ima.on('dialog', (d) => d.dismiss());
+await ima.route(base + '/ima', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body>
+  <div id="player" style="position:relative;width:640px;height:360px">
+    <video id="content" style="width:640px;height:360px"></video>
+    <div class="ima-ad-container" style="position:absolute;inset:0"><video id="adv" style="width:640px;height:360px"></video>
+      <button class="videoAdUiSkipButton" onclick="window.__imaSkip=1">Skip Ad</button></div>
+  </div>
+  <button id="intro" class="skip-intro" aria-label="Skip intro" onclick="window.__intro=1">Saltar intro</button>
+  <script>
+    window.__vast = null;
+    fetch('https://cdn.example-player.com/ads/vast.xml?cb=1').then(function(){ window.__vast = 'ok'; }, function(){ window.__vast = 'blocked'; });
+  </script></body>` }));
+// el dominio del VAST responde de verdad: si llega 'blocked' es porque lo frenó el script, no la red
+await ima.route('https://cdn.example-player.com/**', (route) => route.fulfill({ contentType: 'text/xml', body: '<VAST/>' }));
+await ima.addInitScript(SCRIPT);
+await ima.goto(base + '/ima');
+await ima.waitForTimeout(700);
+const im = await ima.evaluate(() => {
+  const a = document.getElementById('adv'), c = document.getElementById('content');
+  return { skip: !!window.__imaSkip, adMuted: a.muted, adRate: a.playbackRate, contentMuted: c.muted, intro: !!window.__intro, vast: window.__vast };
+});
+check('universal: anuncio IMA encima del vídeo → "Skip Ad" pulsado, anuncio silenciado y acelerado', im.skip && im.adMuted && im.adRate === 16);
+check('universal: el vídeo del contenido no se toca', !im.contentMuted);
+check('universal: "Saltar intro" (no es anuncio) no se pulsa', !im.intro);
+check('universal: petición VAST de cualquier dominio bloqueada', im.vast === 'blocked');
 
 // Webs con Trusted Types (como YouTube): innerHTML lanza excepción; el cursor debe funcionar igual
 const tt = await ctx.newPage();

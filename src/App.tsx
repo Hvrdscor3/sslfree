@@ -5,7 +5,7 @@ import type { ShouldStartLoadRequest, WebViewMessageEvent, WebViewMethods } from
 
 import Toolbar from './components/Toolbar';
 import StartPage from './components/StartPage';
-import { hostsForInjection, isBlockedUrl, isDisallowedScheme } from './core/adblock';
+import { AD_PATH_RE, hostsForInjection, isBlockedUrl, isDisallowedScheme } from './core/adblock';
 import { buildInjectedScript, FULLSCREEN_VIDEO_JS, RELOAD_JS } from './core/injected';
 import { displayUrl, normalizeInput } from './core/url';
 
@@ -18,7 +18,7 @@ const UA_DESKTOP =
 const CURSOR_IMG = require('./assets/cursor.png');
 
 // Se construye una sola vez: es la pieza que bloquea pop-ups y anuncios dentro de la página.
-const INJECTED = buildInjectedScript(hostsForInjection());
+const INJECTED = buildInjectedScript(hostsForInjection(), AD_PATH_RE.source);
 
 
 export default function App() {
