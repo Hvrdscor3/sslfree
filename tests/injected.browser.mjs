@@ -17,7 +17,8 @@ const page_html = `<!doctype html><html><head>
 <a id="ext" href="/other" target="_blank">enlace</a>
 <ins class="adsbygoogle" style="display:block;width:300px;height:250px">ad</ins>
 <div id="gpt" data-google-query-id="abc" style="height:90px">gpt</div><amp-ad id="amp" style="display:block">amp</amp-ad>
-<div id="tb" class="trc_rbox_container">taboola</div><div id="ariaad" aria-label="Publicidad">pub</div>
+<div id="tb" class="trc_rbox_container">taboola</div>
+<ins id="exo" class="eas6a97888e2" data-zoneid="1234567" style="display:block">exo</ins><div id="tsad" style="height:90px" class="ts_ad_native">ts</div><div id="ariaad" aria-label="Publicidad">pub</div>
 <div id="real" class="header-load-more">contenido real</div>
 <video id="v" width="640" height="360" muted src="/v.mp4"></video>
 <div id="trap" style="position:fixed;inset:0;z-index:9999;opacity:0" onclick="window.__trapped=1"></div>
@@ -59,7 +60,7 @@ const r = await page.evaluate(() => ({
   popScript: !!document.querySelector('script[src*="popcash"]'),
   adIframe: !!document.querySelector('iframe[src*="exoclick"]'),
   insHidden: getComputedStyle(document.querySelector('ins.adsbygoogle')).display === 'none',
-  embedsHidden: ['gpt', 'amp', 'tb', 'ariaad'].every((id) => getComputedStyle(document.getElementById(id)).display === 'none'),
+  embedsHidden: ['gpt', 'amp', 'tb', 'ariaad', 'exo', 'tsad'].every((id) => getComputedStyle(document.getElementById(id)).display === 'none'),
   realShown: getComputedStyle(document.getElementById('real')).display !== 'none',
   linkTarget: document.getElementById('ext').getAttribute('target'),
   fetchBlocked: window.fetchBlocked,
@@ -79,7 +80,7 @@ check('no se abrió ninguna ventana nueva', popups.length === 0);
 check('script de pop-under eliminado', !r.popScript);
 check('iframe de anuncios eliminado', !r.adIframe);
 check('contenedor adsbygoogle oculto', r.insHidden);
-check('anuncios incrustados (GPT, AMP, Taboola, "Publicidad") ocultos', r.embedsHidden);
+check('anuncios incrustados (GPT, AMP, Taboola, "Publicidad", ExoClick, TrafficStars) ocultos', r.embedsHidden);
 check('el contenido normal no se oculta', r.realShown);
 check('enlace _blank convertido a _self', r.linkTarget === '_self');
 check('fetch a rastreador bloqueado', r.fetchBlocked === true);

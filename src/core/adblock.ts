@@ -37,6 +37,13 @@ export const AD_HOSTS: readonly string[] = [
   'mnaspm.com', 'dtscout.com', 'dtscdn.com', 'bvtpk.com', 'rtmark.net', 'oclasrv.com',
   'onclicka.com', 'onclickperformance.com', 'adexchangeprediction.com', 'go.oclasrv.com',
   'jads.co', 'adbetclickin.pink', 'brightadnetwork.com', 'tapioni.com', 'betteradsystem.com',
+  // Redes de anuncios de webs para adultos (ExoClick, TrafficJunky, TrafficStars, JuicyAds y demás).
+  // ExoClick rota dominios: además se bloquea su script (ad-provider.js) por ruta y sus etiquetas <ins data-zoneid>.
+  'magsrv.com', 'exdynsrv.com', 'exoticads.com', 'trafficjunky.com', 'mybid.io', 'trafficfactory.biz',
+  'traffichaus.com', 'twinred.com', 'tubecorporate.com', 'adnium.com', 'crakrevenue.com', 'mavrtracktor.com',
+  'awempire.com', 'stripcash.com', 'xlivrdr.com', 'adultforce.com', 'reporo.net', 'trafficshop.com',
+  'mndsrv.com', 'adsession.com', 'xxxlnk.com', 'tsyndicate.net', 'ad-delivery.net', 'adxxx.com',
+  'sexad.net', 'eroadvertising.com', 'adultadworld.com', 'trafficforce.com', 'tubeadnetwork.com',
   // Rastreadores / analítica pesada
   'google-analytics.com', 'googletagmanager.com', 'scorecardresearch.com', 'quantserve.com',
   'hotjar.com', 'mixpanel.com', 'segment.io', 'branch.io', 'adjust.com', 'appsflyer.com',
@@ -70,7 +77,7 @@ export function isBlockedHost(host: string): boolean {
  * Peticiones de anuncios de vídeo por su forma, en cualquier dominio: etiquetas VAST/VMAP y Google Ad Manager.
  * (Se usa también dentro de la página: debe ser la misma expresión que AD_PATH en injected.ts.)
  */
-export const AD_PATH_RE = /\/gampad\/ads|\/pagead\/(ads|adview|conversion)|[?&](vast|vmap|adtagurl|ad_tag|vpaid)=|\/vast\d?(\.xml|\.php)?([?/#]|$)|\/vmap(\.xml)?([?/#]|$)|\/api\/stats\/ads|\/get_midroll_info/i;
+export const AD_PATH_RE = /\/gampad\/ads|\/pagead\/(ads|adview|conversion)|[?&](vast|vmap|adtagurl|ad_tag|vpaid)=|\/vast\d?(\.xml|\.php)?([?/#]|$)|\/vmap(\.xml)?([?/#]|$)|\/api\/stats\/ads|\/get_midroll_info|\/ad-provider\.js|\/(popunder|popads)\d*\.js/i;
 
 export function isBlockedUrl(url: string): boolean {
   const host = getHost(url);
