@@ -206,7 +206,7 @@ function curEl(){
   var d = document.createElement('div'); d.id = '__lb_cursor';
   d.setAttribute('style', 'position:fixed;left:0;top:0;width:26px;height:26px;margin:-4px 0 0 -4px;z-index:2147483647;' +
     'pointer-events:none;transition:none;will-change:transform;display:none');
-  d.innerHTML = '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M4 3l16 9-7 2 4 8-3 1.5-4-8-6 5z" ' +
+  d.innerHTML = '<svg width="26" height="26" viewBox="0 0 26 26" style="pointer-events:none;display:block"><path d="M4 3l16 9-7 2 4 8-3 1.5-4-8-6 5z" ' +
     'fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>';
   root.appendChild(d); cur.el = d; return d;
 }
@@ -230,9 +230,9 @@ function curDraw(){
 /* window.ReactNativeWebView puede aparecer después de inyectar el script: la opacidad se decide en cada dibujo */
 var _curDraw = curDraw; curDraw = function(){
   _curDraw();
-  var o = NATIVE() ? '0' : '1';
-  if (cur.el && cur.el.style.opacity !== o && !cur.flash) cur.el.style.opacity = o;
-  if (cur.ring && cur.ring.style.opacity !== o) cur.ring.style.opacity = o;
+  /* Con la app dibujando el cursor, el de la página se oculta del todo: en el WebView de Vega un elemento
+     transparente con pointer-events:none seguía interceptando elementFromPoint y tapaba los enlaces. */
+  if (NATIVE() && cur.el) cur.el.style.display = 'none';
   curPost();
 };
 /* si el desfase depende del scroll (fixed roto), se vuelve a medir al desplazar */
@@ -262,7 +262,7 @@ function curRing(){
   if (r.width * r.height > VW() * VH() * 0.4) { g.style.display = 'none'; curPost(); return; }
   cur.rr = [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
   curPost();
-  g.style.display = 'block';
+  g.style.display = NATIVE() ? 'none' : 'block';
   g.style.width = (r.width + 8) + 'px'; g.style.height = (r.height + 8) + 'px';
   g.style.transform = 'translate(' + (r.left - 4 - cur.ox) + 'px,' + (r.top - 4 - cur.oy) + 'px)';
 }

@@ -138,6 +138,26 @@ check('cursor: OK hace clic en el botón bajo el puntero (aunque otro campo teng
 check('cursor: OK sobre un input le da el foco', c2.focused === 'i');
 check('cursor: en el borde inferior desplaza la página', c3.scrollY > 0);
 
+// Dentro de la app (window.ReactNativeWebView): el cursor lo dibuja React Native; el de la página no debe
+// existir visualmente ni tapar enlaces, y la posición se envía en proporción del viewport
+const nv = await ctx.newPage();
+await nv.setViewportSize({ width: 800, height: 600 });
+const navMsgs = [];
+await nv.exposeFunction('__rnPost2', (m) => navMsgs.push(JSON.parse(m)));
+await nv.addInitScript(`window.ReactNativeWebView = { postMessage: function(m){ window.__rnPost2(m); } };`);
+await nv.route(base + '/native', (route) => route.fulfill({ contentType: 'text/html', body:
+  `<!doctype html><body style="margin:0"><a id="l" href="#hit" style="position:absolute;left:380px;top:290px;font-size:14px">enlace de texto pequeño</a></body>` }));
+await nv.addInitScript(SCRIPT);
+await nv.goto(base + '/native');
+await nv.waitForTimeout(150);
+await nv.keyboard.press('Enter'); // el cursor empieza en el centro (400,300), encima del enlace
+await nv.waitForTimeout(100);
+const n1 = await nv.evaluate(() => ({ hash: location.hash, disp: getComputedStyle(document.getElementById('__lb_cursor')).display }));
+const lastCur = navMsgs.filter((m) => m.type === 'cur').pop();
+check('app: el cursor de la página está oculto (lo dibuja la app)', n1.disp === 'none');
+check('app: OK sobre un enlace de texto lo abre', n1.hash === '#hit');
+check('app: posición enviada en proporción (0,5 ; 0,5)', !!lastCur && Math.abs(lastCur.data[0] - 0.5) < 0.01 && Math.abs(lastCur.data[1] - 0.5) < 0.01);
+
 // Webs que rompen position:fixed (transform en <html>/<body>, como html.duckduckgo.com): el cursor debe seguir en pantalla
 const fx = await ctx.newPage();
 await fx.setViewportSize({ width: 800, height: 600 });
