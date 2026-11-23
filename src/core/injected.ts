@@ -175,10 +175,14 @@ document.addEventListener('fullscreenchange', function(){ post('fullscreen', !!f
 
 /* 7. Cursor virtual: las flechas mueven un puntero (con aceleración) y OK hace clic donde está.
    En los bordes desplaza la página; arriba del todo deja salir el foco hacia la barra de la app. */
-var cur = { on: true, x: -1, y: -1, el: null, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0 };
+var cur = { on: true, x: -1, y: -1, el: null, ring: null, ringFor: null, ringT: 0, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0, ox: 0, oy: 0, fix: true };
+/* Se cuelga de <html>, no de <body>: si la web pone transform/filter/contain en <body>,
+   position:fixed deja de ser relativo a la pantalla. Además se mide y se compensa (cur.ox/oy)
+   por si también <html> lo rompe. */
 function curEl(){
   if (cur.el && cur.el.isConnected) return cur.el;
-  var root = document.body || document.documentElement; if (!root) return null;
+  var root = document.documentElement; if (!root) return null;
+  cur.ox = 0; cur.oy = 0; cur.fix = true;
   var d = document.createElement('div'); d.id = '__lb_cursor';
   d.setAttribute('style', 'position:fixed;left:0;top:0;width:26px;height:26px;margin:-4px 0 0 -4px;z-index:2147483647;' +
     'pointer-events:none;transition:none;will-change:transform;display:none');
@@ -190,15 +194,48 @@ function curDraw(){
   var d = curEl(); if (!d) return;
   if (cur.x < 0) { cur.x = window.innerWidth / 2; cur.y = window.innerHeight / 2; }
   d.style.display = cur.on && !fsEl() ? 'block' : 'none';
-  d.style.transform = 'translate3d(' + cur.x.toFixed(1) + 'px,' + cur.y.toFixed(1) + 'px,0)';
+  d.style.transform = 'translate3d(' + (cur.x - cur.ox).toFixed(1) + 'px,' + (cur.y - cur.oy).toFixed(1) + 'px,0)';
+  if (cur.fix && d.style.display === 'block') {
+    /* comprobar que el puntero está donde debe en la pantalla (margin -4px) y corregir el desfase */
+    cur.fix = false;
+    var r = d.getBoundingClientRect();
+    var ex = r.left + 4 - cur.x, ey = r.top + 4 - cur.y;
+    if (Math.abs(ex) > 1 || Math.abs(ey) > 1) {
+      cur.ox += ex; cur.oy += ey;
+      d.style.transform = 'translate3d(' + (cur.x - cur.ox).toFixed(1) + 'px,' + (cur.y - cur.oy).toFixed(1) + 'px,0)';
+    }
+  }
 }
+/* si el desfase depende del scroll (fixed roto), se vuelve a medir al desplazar */
+window.addEventListener('scroll', function(){ if (cur.el) { cur.fix = true; curDraw(); cur.ringFor = null; curRing(); } }, { passive: true, capture: true });
 function curTarget(){ return document.elementFromPoint(cur.x, cur.y); }
 function mouse(type, el, extra){
   var o = { bubbles: true, cancelable: true, view: window, clientX: cur.x, clientY: cur.y, button: 0 };
   for (var k in extra) o[k] = extra[k];
   try { el.dispatchEvent(type.indexOf('pointer') === 0 && window.PointerEvent ? new PointerEvent(type, o) : new MouseEvent(type, o)); } catch(e){}
 }
+/* Recuadro azul alrededor del elemento pulsable bajo el cursor (se ve aunque algo tape la flecha) */
+var CLICKABLE = 'a[href],button,input,select,textarea,label,summary,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[onclick],[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+function curRing(){
+  var t = curTarget(), c = t && t.closest ? t.closest(CLICKABLE) : null;
+  if (c === cur.ringFor) return;
+  cur.ringFor = c;
+  var g = cur.ring;
+  if (!g || !g.isConnected) {
+    g = cur.ring = document.createElement('div'); g.id = '__lb_ring';
+    g.setAttribute('style', 'position:fixed;left:0;top:0;z-index:2147483646;pointer-events:none;border:3px solid #3b82f6;' +
+      'border-radius:8px;box-shadow:0 0 0 2px rgba(255,255,255,.85),0 0 14px rgba(59,130,246,.8);display:none;box-sizing:border-box');
+    document.documentElement.appendChild(g);
+  }
+  if (!c || !cur.on || fsEl()) { g.style.display = 'none'; return; }
+  var r = c.getBoundingClientRect();
+  if (r.width * r.height > window.innerWidth * window.innerHeight * 0.4) { g.style.display = 'none'; return; }
+  g.style.display = 'block';
+  g.style.width = (r.width + 8) + 'px'; g.style.height = (r.height + 8) + 'px';
+  g.style.transform = 'translate(' + (r.left - 4 - cur.ox) + 'px,' + (r.top - 4 - cur.oy) + 'px)';
+}
 function curHover(){
+  curRing();
   var t = curTarget(); if (!t) return;
   if (t !== cur.hover) {
     if (cur.hover) { mouse('mouseout', cur.hover, { relatedTarget: t }); mouse('mouseleave', cur.hover, { bubbles: false }); }
@@ -285,6 +322,7 @@ function curTick(t){
   var held = (now - cur.start) / 1000;
   var v = Math.min(1600, 160 + 1300 * held * held);
   curStep(v * dt / 1000);
+  if (t - (cur.ringT || 0) > 90) { cur.ringT = t; curRing(); }
   cur.raf = requestAnimationFrame(curTick);
 }
 function curStop(){

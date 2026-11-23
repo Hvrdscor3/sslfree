@@ -112,6 +112,8 @@ const moveTo = async (tx, ty) => {
 const tapMoved = await (async () => { const a = await curPos(); await tap('ArrowRight'); const b = await curPos(); return b.x - a.x; })();
 check('cursor: un toque corto mueve poco (5-40 px)', tapMoved >= 5 && tapMoved <= 40);
 await moveTo(500, 260); // dentro del botón (400..600, 200..320)
+const ring = await cp.evaluate(() => { const g = document.getElementById('__lb_ring'); if (!g) return null; const r = g.getBoundingClientRect(); return { d: getComputedStyle(g).display, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) }; });
+check('cursor: recuadro azul alrededor del botón bajo el puntero', !!ring && ring.d === 'block' && Math.abs(ring.x - 396) <= 2 && Math.abs(ring.y - 196) <= 2 && Math.abs(ring.w - 208) <= 2);
 await cp.keyboard.press('Enter');
 const c1 = await cp.evaluate(() => ({ clicked: window.__clicked || 0 }));
 await moveTo(150, 460);  // dentro del input (100..~270, 450..~471)
@@ -134,6 +136,21 @@ check('cursor visible al cargar, en el centro', c0.shown === 'block' && Math.abs
 check('cursor: OK hace clic en el botón bajo el puntero', c1.clicked === 1);
 check('cursor: OK sobre un input le da el foco', c2.focused === 'i');
 check('cursor: en el borde inferior desplaza la página', c3.scrollY > 0);
+
+// Webs que rompen position:fixed (transform en <html>/<body>, como html.duckduckgo.com): el cursor debe seguir en pantalla
+const fx = await ctx.newPage();
+await fx.setViewportSize({ width: 800, height: 600 });
+await fx.route(base + '/fixed', (route) => route.fulfill({ contentType: 'text/html', body:
+  `<!doctype html><html style="transform:translateZ(0)"><body style="margin:0;transform:translateZ(0);filter:contrast(1)">
+   <div style="height:5000px"></div></body></html>` }));
+await fx.addInitScript(SCRIPT);
+await fx.goto(base + '/fixed');
+await fx.evaluate(() => window.scrollTo(0, 2000));
+await fx.waitForTimeout(100);
+await fx.keyboard.down('ArrowRight'); await fx.waitForTimeout(150); await fx.keyboard.up('ArrowRight');
+await fx.waitForTimeout(50);
+const fr = await fx.evaluate(() => { const r = document.getElementById('__lb_cursor').getBoundingClientRect(); return { x: r.x + 4, y: r.y + 4 }; });
+check('cursor visible aunque la web rompa position:fixed (página desplazada)', fr.y > 250 && fr.y < 350 && fr.x > 400 && fr.x < 480);
 
 // Camino de respaldo: inyección tardía (onLoadEnd -> injectJavaScript)
 const late = await ctx.newPage();
