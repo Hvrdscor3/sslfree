@@ -85,6 +85,35 @@ await page.waitForTimeout(1700);
 check('navegación SPA notificada a la app', messages.some((m) => m.type === 'nav' && m.data.endsWith('/seccion')));
 check('mensajes enviados a la app (stats/ready)', messages.some((m) => m.type === 'stats') && messages.some((m) => m.type === 'ready'));
 
+// Cursor virtual: flechas mueven el puntero, OK hace clic, abajo en el borde desplaza
+const cp = await ctx.newPage();
+cp.on('dialog', (d) => d.dismiss());
+await cp.setViewportSize({ width: 800, height: 600 });
+await cp.route(base + '/cursor', (route) => route.fulfill({ contentType: 'text/html', body:
+  `<!doctype html><body style="margin:0"><button id="b" style="position:absolute;left:400px;top:200px;width:200px;height:120px"
+   onclick="window.__clicked=(window.__clicked||0)+1">btn</button><input id="i" style="position:absolute;left:100px;top:450px">
+   <div style="height:3000px"></div></body>` }));
+await cp.addInitScript(SCRIPT);
+await cp.goto(base + '/cursor');
+await cp.waitForTimeout(100);
+const c0 = await cp.evaluate(() => { const r = document.getElementById('__lb_cursor').getBoundingClientRect(); return { shown: getComputedStyle(document.getElementById('__lb_cursor')).display, x: r.x + 4, y: r.y + 4 }; });
+// Pulsaciones separadas >200 ms: velocidad base de 14 px por pulsación (sin aceleración)
+const step = async (key, n) => { for (let i = 0; i < n; i++) { await cp.keyboard.press(key); await cp.waitForTimeout(210); } };
+await step('ArrowRight', 6); // de (400,300) a (484,300): dentro del botón
+await cp.keyboard.press('Enter');
+const c1 = await cp.evaluate(() => ({ clicked: window.__clicked || 0 }));
+await step('ArrowLeft', 25);  // x = 134
+await step('ArrowDown', 12);  // y = 468: dentro del input (450..~471)
+await cp.keyboard.press('Enter');
+const c2 = await cp.evaluate(() => ({ focused: document.activeElement && document.activeElement.id }));
+for (let i = 0; i < 40; i++) await cp.keyboard.down('ArrowDown');
+await cp.keyboard.up('ArrowDown');
+const c3 = await cp.evaluate(() => ({ scrollY: window.scrollY }));
+check('cursor visible al cargar, en el centro', c0.shown === 'block' && Math.abs(c0.x - 400) < 3 && Math.abs(c0.y - 300) < 3);
+check('cursor: OK hace clic en el botón bajo el puntero', c1.clicked === 1);
+check('cursor: OK sobre un input le da el foco', c2.focused === 'i');
+check('cursor: en el borde inferior desplaza la página', c3.scrollY > 0);
+
 // Camino de respaldo: inyección tardía (onLoadEnd -> injectJavaScript)
 const late = await ctx.newPage();
 late.on('dialog', (d) => d.dismiss());

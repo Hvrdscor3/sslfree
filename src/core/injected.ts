@@ -10,6 +10,7 @@
  *  4. Bloquea diálogos alert/confirm/prompt y "onbeforeunload" usados para retener al usuario.
  *  5. Controles de vídeo con el mando: OK = play/pausa, ←/→ = ±10 s, ↑/↓ = volumen.
  *  6. Expone window.__lb.video() para poner a pantalla completa el vídeo principal.
+ *  7. Cursor virtual: flechas = mover puntero, OK = clic, bordes = desplazar. window.__lb.cursor() lo activa/desactiva.
  */
 export function buildInjectedScript(hosts: readonly string[]): string {
   return `(function(){
@@ -172,6 +173,100 @@ document.addEventListener('keydown', function(e){
 }, true);
 document.addEventListener('fullscreenchange', function(){ post('fullscreen', !!fsEl()); });
 
+/* 7. Cursor virtual: las flechas mueven un puntero (con aceleración) y OK hace clic donde está.
+   En los bordes desplaza la página; arriba del todo deja salir el foco hacia la barra de la app. */
+var cur = { on: true, x: -1, y: -1, el: null, speed: 0, lastKey: 0, lastDir: '', hover: null };
+function curEl(){
+  if (cur.el && cur.el.isConnected) return cur.el;
+  var root = document.body || document.documentElement; if (!root) return null;
+  var d = document.createElement('div'); d.id = '__lb_cursor';
+  d.setAttribute('style', 'position:fixed;left:0;top:0;width:26px;height:26px;margin:-4px 0 0 -4px;z-index:2147483647;' +
+    'pointer-events:none;transition:none;will-change:transform;display:none');
+  d.innerHTML = '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M4 3l16 9-7 2 4 8-3 1.5-4-8-6 5z" ' +
+    'fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+  root.appendChild(d); cur.el = d; return d;
+}
+function curDraw(){
+  var d = curEl(); if (!d) return;
+  if (cur.x < 0) { cur.x = window.innerWidth / 2; cur.y = window.innerHeight / 2; }
+  d.style.display = cur.on && !fsEl() ? 'block' : 'none';
+  d.style.transform = 'translate(' + Math.round(cur.x) + 'px,' + Math.round(cur.y) + 'px)';
+}
+function curTarget(){ return document.elementFromPoint(cur.x, cur.y); }
+function mouse(type, el, extra){
+  var o = { bubbles: true, cancelable: true, view: window, clientX: cur.x, clientY: cur.y, button: 0 };
+  for (var k in extra) o[k] = extra[k];
+  try { el.dispatchEvent(type.indexOf('pointer') === 0 && window.PointerEvent ? new PointerEvent(type, o) : new MouseEvent(type, o)); } catch(e){}
+}
+function curHover(){
+  var t = curTarget(); if (!t) return;
+  if (t !== cur.hover) {
+    if (cur.hover) { mouse('mouseout', cur.hover, { relatedTarget: t }); mouse('mouseleave', cur.hover, { bubbles: false }); }
+    mouse('mouseover', t, { relatedTarget: cur.hover }); mouse('mouseenter', t, { bubbles: false });
+    cur.hover = t;
+  }
+  mouse('pointermove', t); mouse('mousemove', t);
+}
+function scrollable(el, dx, dy){
+  for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+    var cs = getComputedStyle(el);
+    if (dy && /(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight) {
+      if ((dy < 0 && el.scrollTop > 0) || (dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1)) return el;
+    }
+    if (dx && /(auto|scroll)/.test(cs.overflowX) && el.scrollWidth > el.clientWidth) {
+      if ((dx < 0 && el.scrollLeft > 0) || (dx > 0 && el.scrollLeft + el.clientWidth < el.scrollWidth - 1)) return el;
+    }
+  }
+  return null;
+}
+function curScroll(dx, dy){
+  var box = scrollable(curTarget(), dx, dy);
+  var before = box ? box.scrollTop + box.scrollLeft : window.scrollY + window.scrollX;
+  if (box) box.scrollBy(dx, dy); else window.scrollBy(dx, dy);
+  var after = box ? box.scrollTop + box.scrollLeft : window.scrollY + window.scrollX;
+  return after !== before;
+}
+function curClick(){
+  var t = curTarget(); if (!t) return;
+  mouse('pointerdown', t); mouse('mousedown', t);
+  var f = t.closest ? t.closest('input,textarea,select,[contenteditable=""],[contenteditable="true"],iframe') : null;
+  if (f) { try { f.focus(); } catch(e){} } else if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); }
+  mouse('pointerup', t); mouse('mouseup', t);
+  if (typeof t.click === 'function') t.click(); else mouse('click', t);
+  var d = curEl(); if (d) { d.style.opacity = '0.4'; setTimeout(function(){ d.style.opacity = '1'; }, 120); }
+}
+function editing(){
+  var a = document.activeElement; if (!a) return false;
+  return a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable;
+}
+var DIRS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+lb.cursor = function(on){ cur.on = on === undefined ? !cur.on : !!on; curDraw(); post('toast', cur.on ? 'Cursor activado' : 'Cursor desactivado'); };
+document.addEventListener('keydown', function(e){
+  if (!cur.on || fsEl() || e.defaultPrevented) return;
+  var k = e.key, dir = DIRS[k];
+  if (!dir && k !== 'Enter') return;
+  if (k === 'Enter') {
+    if (editing()) return; /* deja que el teclado en pantalla confirme el texto */
+    e.preventDefault(); e.stopPropagation(); curClick(); return;
+  }
+  if (editing()) { document.activeElement.blur(); }
+  var now = Date.now();
+  cur.speed = (now - cur.lastKey < 200 && cur.lastDir === k) ? Math.min(cur.speed + 4, 48) : 14;
+  cur.lastKey = now; cur.lastDir = k;
+  if (cur.x < 0) curDraw();
+  var W = window.innerWidth, H = window.innerHeight, M = 2;
+  var nx = cur.x + dir[0] * cur.speed, ny = cur.y + dir[1] * cur.speed;
+  if (nx < M || nx > W - M || ny < M || ny > H - M) {
+    var moved = curScroll(dir[0] * Math.max(cur.speed * 4, 80), dir[1] * Math.max(cur.speed * 4, 80));
+    if (!moved && k === 'ArrowUp' && ny < M) { return; } /* arriba del todo: el foco sale a la barra */
+  }
+  cur.x = Math.max(M, Math.min(W - M, nx)); cur.y = Math.max(M, Math.min(H - M, ny));
+  e.preventDefault(); e.stopPropagation();
+  curDraw(); curHover();
+}, true);
+window.addEventListener('resize', function(){ if (cur.x >= 0) { cur.x = Math.min(cur.x, window.innerWidth - 2); cur.y = Math.min(cur.y, window.innerHeight - 2); curDraw(); } });
+document.addEventListener('fullscreenchange', curDraw);
+
 /* Navegación dentro de la página (SPA): avisa a la app para actualizar la barra */
 ['pushState', 'replaceState'].forEach(function(m){
   var o = history[m];
@@ -183,9 +278,10 @@ window.addEventListener('popstate', function(){ post('nav', location.href); });
 if (document.head) addStyle(); else document.addEventListener('DOMContentLoaded', addStyle);
 document.addEventListener('DOMContentLoaded', function(){
   clean(document.documentElement);
+  curDraw();
   post('ready', { videos: document.querySelectorAll('video').length });
 });
-if (document.readyState !== 'loading') { addStyle(); clean(document.documentElement); post('ready', { videos: document.querySelectorAll('video').length }); }
+if (document.readyState !== 'loading') { addStyle(); clean(document.documentElement); curDraw(); post('ready', { videos: document.querySelectorAll('video').length }); }
 })(); true;`;
 }
 
