@@ -6,8 +6,8 @@
   "main": "index.js",
   "scripts": {
     "start": "react-native start",
-    "build:debug": "vega build --build-type Debug",
-    "build:release": "vega build --build-type Release",
+    "build:debug": "react-native build-vega --build-type Debug",
+    "build:release": "react-native build-vega --build-type Release",
     "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
     "test:browser": "node tests/injected.browser.mjs",
     "typecheck": "tsc --noEmit"
@@ -19,7 +19,23 @@
     "react-native": "0.83.0"
   },
   "devDependencies": {
-    "@types/react": "^19.1.1",
-    "typescript": "^5.4.0"
+    "@amazon-devices/kepler-cli-platform": "^0",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native/babel-preset": "0.83.0",
+    "@react-native/metro-config": "0.83.0",
+    "@types/react": "^19.2.0",
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "kepler": {
+    "projectType": "application",
+    "appName": "sslfree",
+    "targets": ["tv"]
+  },
+  "overrides": {
+    "react": "19.2.0",
+    "react-native": "0.83.0"
   }
 }

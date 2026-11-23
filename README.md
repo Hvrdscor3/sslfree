@@ -33,22 +33,19 @@ tests/                   pruebas
 
 Necesitas el **Vega SDK** instalado en tu ordenador (Amazon Developer → Vega OS → Install the SDK) y un Fire TV con Vega OS en modo desarrollador.
 
-1. Genera un proyecto base con la herramienta del SDK para que tenga la configuración exacta de tu versión (Metro, Babel, etc.):
-   ```bash
-   vega project generate   # elige la plantilla "hello world", nombre: NavegadorLigero
-   ```
-2. Copia en ese proyecto `src/`, `index.js` y `app.json` de este repositorio, y añade la dependencia del WebView:
-   ```bash
-   npm install @amazon-devices/webview@~4.0.5
-   ```
-3. En el `manifest.toml` generado, mantén los valores de `[components]` que creó la plantilla (en especial `runtime-module`) y cambia `title`, `id` y el `id` del componente por los de este repositorio si quieres. El `id` del componente debe coincidir con `name` en `app.json`.
-4. Compila e instala:
-   ```bash
-   npm run build:debug
-   vega device list                      # comprueba que el Firestick aparece
-   vega run-app <ruta al .vpkg> com.sslfree.browser.main
-   ```
-   Los nombres exactos de los comandos pueden variar entre versiones del SDK; usa `vega --help` si alguno no existe.
+El repositorio ya trae la configuración generada por el SDK 2.0.15159 (plantilla `vegaWebview`): `manifest.toml` con los servicios del WebView, `babel.config.js`, `metro.config.js` y `package-lock.json`. Compilado y probado con Node 22.
+
+En Windows el SDK funciona dentro de WSL2 (Ubuntu 22.04, con la virtualización SVM/VT-x activada en la BIOS). El instalador no admite root, así que usa un usuario normal. Si `vega devmode login` falla al guardar el token (`/run/user/1000/bus`), instala `gnome-keyring dbus-x11` y ejecútalo dentro de `dbus-run-session`.
+
+```bash
+npm install
+npm run build:debug                    # genera build/armv7-debug/navegador-ligero_armv7.vpkg (Fire TV Stick)
+vega devmode login                     # una vez, con tu cuenta de Amazon Developer
+vega devmode enable-device --code <código que muestra la tele>
+vega device list                       # comprueba que el Firestick aparece
+vega device install-app --packagePath build/armv7-debug/navegador-ligero_armv7.vpkg
+vega device launch-app --appName com.sslfree.browser.main
+```
 
 ## Pruebas
 
