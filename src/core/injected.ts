@@ -175,7 +175,7 @@ document.addEventListener('fullscreenchange', function(){ post('fullscreen', !!f
 
 /* 7. Cursor virtual: las flechas mueven un puntero (con aceleración) y OK hace clic donde está.
    En los bordes desplaza la página; arriba del todo deja salir el foco hacia la barra de la app. */
-var cur = { on: true, x: -1, y: -1, el: null, speed: 0, lastKey: 0, lastDir: '', hover: null };
+var cur = { on: true, x: -1, y: -1, el: null, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0 };
 function curEl(){
   if (cur.el && cur.el.isConnected) return cur.el;
   var root = document.body || document.documentElement; if (!root) return null;
@@ -250,20 +250,47 @@ document.addEventListener('keydown', function(e){
     e.preventDefault(); e.stopPropagation(); curClick(); return;
   }
   if (editing()) { document.activeElement.blur(); }
-  var now = Date.now();
-  cur.speed = (now - cur.lastKey < 200 && cur.lastDir === k) ? Math.min(cur.speed + 4, 48) : 14;
-  cur.lastKey = now; cur.lastDir = k;
   if (cur.x < 0) curDraw();
-  var W = window.innerWidth, H = window.innerHeight, M = 2;
-  var nx = cur.x + dir[0] * cur.speed, ny = cur.y + dir[1] * cur.speed;
-  if (nx < M || nx > W - M || ny < M || ny > H - M) {
-    var moved = curScroll(dir[0] * Math.max(cur.speed * 4, 80), dir[1] * Math.max(cur.speed * 4, 80));
-    if (!moved && k === 'ArrowUp' && ny < M) { return; } /* arriba del todo: el foco sale a la barra */
-  }
-  cur.x = Math.max(M, Math.min(W - M, nx)); cur.y = Math.max(M, Math.min(H - M, ny));
+  /* arriba del todo y sin nada que desplazar: deja que el foco salga a la barra */
+  if (k === 'ArrowUp' && cur.y <= 3 && !scrollable(curTarget(), 0, -1) && window.scrollY <= 0) { curStop(); return; }
   e.preventDefault(); e.stopPropagation();
-  curDraw(); curHover();
+  var now = Date.now();
+  cur.lastKey = now;
+  if (cur.dir !== k) {
+    /* pulsación nueva: un pequeño salto inmediato para que un toque corto también mueva */
+    cur.dir = k; cur.vx = dir[0]; cur.vy = dir[1]; cur.start = now;
+    curStep(18);
+  }
+  if (!cur.raf) { cur.prev = 0; cur.raf = requestAnimationFrame(curTick); }
 }, true);
+document.addEventListener('keyup', function(e){ if (DIRS[e.key] && e.key === cur.dir) curStop(); }, true);
+/* Mueve el cursor n píxeles en la dirección actual; en el borde desplaza la página. */
+function curStep(n){
+  var W = window.innerWidth, H = window.innerHeight, M = 2;
+  var nx = cur.x + cur.vx * n, ny = cur.y + cur.vy * n;
+  if (nx < M || nx > W - M || ny < M || ny > H - M) curScroll(cur.vx * n * 1.5, cur.vy * n * 1.5);
+  cur.x = Math.max(M, Math.min(W - M, nx)); cur.y = Math.max(M, Math.min(H - M, ny));
+  curDraw();
+}
+/* Movimiento continuo mientras se mantiene la flecha: 450 px/s al principio, hasta 1500 px/s. */
+function curTick(t){
+  cur.raf = 0;
+  if (!cur.dir) return;
+  var now = Date.now();
+  /* si el mando deja de repetir (sin keyup), se para solo */
+  if (now - cur.lastKey > 320) { curStop(); return; }
+  var dt = cur.prev ? Math.min(t - cur.prev, 50) : 16; cur.prev = t;
+  var held = (now - cur.start - 150) / 1000;
+  /* los primeros 150 ms no se mueve: un toque corto avanza sólo el salto inicial (precisión) */
+  if (held < 0) { cur.prev = 0; cur.raf = requestAnimationFrame(curTick); return; }
+  var v = Math.min(1500, 450 + held * 900);
+  curStep(v * dt / 1000);
+  cur.raf = requestAnimationFrame(curTick);
+}
+function curStop(){
+  if (cur.raf) { cancelAnimationFrame(cur.raf); cur.raf = 0; }
+  if (cur.dir) { cur.dir = ''; curHover(); }
+}
 window.addEventListener('resize', function(){ if (cur.x >= 0) { cur.x = Math.min(cur.x, window.innerWidth - 2); cur.y = Math.min(cur.y, window.innerHeight - 2); curDraw(); } });
 document.addEventListener('fullscreenchange', curDraw);
 
