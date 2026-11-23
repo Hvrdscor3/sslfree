@@ -159,7 +159,7 @@ lb.video = function(){
   try { v.play(); } catch(e){}
   v.focus && v.focus();
 };
-document.addEventListener('keydown', function(e){
+window.addEventListener('keydown', function(e){
   var f = fsEl(); if (!f) return;
   var v = f.tagName === 'VIDEO' ? f : f.querySelector('video'); if (!v) return;
   var k = e.key, used = true;
@@ -192,7 +192,7 @@ function curPost(){
   cur.pq = 1;
   requestAnimationFrame(function(){
     cur.pq = 0;
-    var vis = cur.on && !fsEl() && cur.x >= 0 ? 1 : 0;
+    var vis = cur.on && !cur.sleep && !fsEl() && cur.x >= 0 ? 1 : 0;
     /* en proporción del viewport (0..1): la app lo multiplica por su tamaño real, sin depender de la densidad */
     var W = VW() || 1, H = VH() || 1, q = function(v, d){ return Math.round(v / d * 10000) / 10000; };
     var rr = cur.rr ? [q(cur.rr[0], W), q(cur.rr[1], H), q(cur.rr[2], W), q(cur.rr[3], H)] : 0;
@@ -206,14 +206,19 @@ function curEl(){
   var d = document.createElement('div'); d.id = '__lb_cursor';
   d.setAttribute('style', 'position:fixed;left:0;top:0;width:26px;height:26px;margin:-4px 0 0 -4px;z-index:2147483647;' +
     'pointer-events:none;transition:none;will-change:transform;display:none');
-  d.innerHTML = '<svg width="26" height="26" viewBox="0 0 26 26" style="pointer-events:none;display:block"><path d="M4 3l16 9-7 2 4 8-3 1.5-4-8-6 5z" ' +
-    'fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+  /* Sin innerHTML: webs con Trusted Types (YouTube) lanzan una excepción y el cursor no arrancaba */
+  var NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), path = document.createElementNS(NS, 'path');
+  svg.setAttribute('width', '26'); svg.setAttribute('height', '26'); svg.setAttribute('viewBox', '0 0 26 26');
+  svg.setAttribute('style', 'pointer-events:none;display:block');
+  path.setAttribute('d', 'M4 3l16 9-7 2 4 8-3 1.5-4-8-6 5z'); path.setAttribute('fill', '#fff');
+  path.setAttribute('stroke', '#000'); path.setAttribute('stroke-width', '1.6'); path.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(path); d.appendChild(svg);
   root.appendChild(d); cur.el = d; return d;
 }
 function curDraw(){
   var d = curEl(); if (!d) return;
   if (cur.x < 0) { cur.x = VW() / 2; cur.y = VH() / 2; }
-  d.style.display = cur.on && !fsEl() ? 'block' : 'none';
+  d.style.display = cur.on && !cur.sleep && !fsEl() ? 'block' : 'none';
   d.style.transform = 'translate3d(' + (cur.x - cur.ox).toFixed(1) + 'px,' + (cur.y - cur.oy).toFixed(1) + 'px,0)';
   if (cur.fix && d.style.display === 'block') {
     /* comprobar que el puntero está donde debe en la pantalla (margin -4px) y corregir el desfase */
@@ -257,7 +262,7 @@ function curRing(){
     document.documentElement.appendChild(g);
   }
   cur.rr = 0;
-  if (!c || !cur.on || fsEl()) { g.style.display = 'none'; curPost(); return; }
+  if (!c || !cur.on || cur.sleep || fsEl()) { g.style.display = 'none'; curPost(); return; }
   var r = c.getBoundingClientRect();
   if (r.width * r.height > VW() * VH() * 0.4) { g.style.display = 'none'; curPost(); return; }
   cur.rr = [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
@@ -312,11 +317,19 @@ function editing(){
   return a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable;
 }
 var DIRS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+/* Se oculta tras 2,5 s sin usar el mando: así no queda nada dibujado encima de un vídeo
+   (una capa encima obliga a componer el vídeo y en el Firestick se pierden fotogramas). */
+function curWake(){
+  if (cur.sleep) { cur.sleep = 0; curDraw(); cur.ringFor = null; curRing(); }
+  clearTimeout(cur.idleT);
+  cur.idleT = setTimeout(function(){ if (cur.dir) { curWake(); return; } cur.sleep = 1; curPost(); }, 2500);
+}
 lb.cursor = function(on){ cur.on = on === undefined ? !cur.on : !!on; curDraw(); post('toast', cur.on ? 'Cursor activado' : 'Cursor desactivado'); };
-document.addEventListener('keydown', function(e){
-  if (!cur.on || fsEl() || e.defaultPrevented) return;
+window.addEventListener('keydown', function(e){
+  if (!cur.on || fsEl()) return;
   var k = e.key, dir = DIRS[k];
   if (!dir && k !== 'Enter') return;
+  curWake();
   if (k === 'Enter') {
     /* Sólo se deja pasar el Enter (p. ej. "Ir" del teclado en pantalla) si el cursor está sobre el MISMO campo
        que se está editando. Muchas webs (DuckDuckGo) enfocan su buscador al cargar: si no, OK nunca haría clic. */
@@ -336,7 +349,7 @@ document.addEventListener('keydown', function(e){
   }
   if (!cur.raf) { cur.prev = 0; cur.raf = requestAnimationFrame(curTick); }
 }, true);
-document.addEventListener('keyup', function(e){ if (DIRS[e.key] && e.key === cur.dir) curStop(); }, true);
+window.addEventListener('keyup', function(e){ if (DIRS[e.key] && e.key === cur.dir) curStop(); }, true);
 /* Mueve el cursor n píxeles en la dirección actual; en el borde desplaza la página. */
 function curStep(n){
   var W = VW(), H = VH(), M = 2;
@@ -380,10 +393,10 @@ window.addEventListener('popstate', function(){ post('nav', location.href); });
 if (document.head) addStyle(); else document.addEventListener('DOMContentLoaded', addStyle);
 document.addEventListener('DOMContentLoaded', function(){
   clean(document.documentElement);
-  curDraw();
+  curDraw(); curWake();
   post('ready', { videos: document.querySelectorAll('video').length });
 });
-if (document.readyState !== 'loading') { addStyle(); clean(document.documentElement); curDraw(); post('ready', { videos: document.querySelectorAll('video').length }); }
+if (document.readyState !== 'loading') { addStyle(); clean(document.documentElement); curDraw(); curWake(); post('ready', { videos: document.querySelectorAll('video').length }); }
 })(); true;`;
 }
 

@@ -158,6 +158,25 @@ check('app: el cursor de la página está oculto (lo dibuja la app)', n1.disp ==
 check('app: OK sobre un enlace de texto lo abre', n1.hash === '#hit');
 check('app: posición enviada en proporción (0,5 ; 0,5)', !!lastCur && Math.abs(lastCur.data[0] - 0.5) < 0.01 && Math.abs(lastCur.data[1] - 0.5) < 0.01);
 
+// Webs con Trusted Types (como YouTube): innerHTML lanza excepción; el cursor debe funcionar igual
+const tt = await ctx.newPage();
+await tt.setViewportSize({ width: 800, height: 600 });
+await tt.route(base + '/tt', (route) => route.fulfill({ contentType: 'text/html', headers: { 'Content-Security-Policy': "require-trusted-types-for 'script'" },
+  body: `<!doctype html><body style="margin:0"><div style="height:2000px"></div></body>` }));
+await tt.addInitScript(SCRIPT);
+await tt.goto(base + '/tt');
+await tt.keyboard.down('ArrowRight'); await tt.waitForTimeout(150); await tt.keyboard.up('ArrowRight');
+const ttc = await tt.evaluate(() => { const c = document.getElementById('__lb_cursor'); return c ? c.getBoundingClientRect().x + 4 : -1; });
+check('cursor funciona en webs con Trusted Types (YouTube)', ttc > 405);
+
+// Tras 2,5 s sin teclas el cursor se oculta (nada dibujado encima del vídeo) y vuelve con una flecha
+await nv.waitForTimeout(2700);
+const slept = navMsgs.filter((m) => m.type === 'cur').pop();
+await nv.keyboard.press('ArrowLeft'); await nv.waitForTimeout(100);
+const woke = navMsgs.filter((m) => m.type === 'cur').pop();
+check('cursor: se oculta solo tras 2,5 s sin usar el mando', !!slept && slept.data[2] === 0);
+check('cursor: reaparece al pulsar una flecha', !!woke && woke.data[2] === 1);
+
 // Webs que rompen position:fixed (transform en <html>/<body>, como html.duckduckgo.com): el cursor debe seguir en pantalla
 const fx = await ctx.newPage();
 await fx.setViewportSize({ width: 800, height: 600 });
