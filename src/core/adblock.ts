@@ -77,7 +77,7 @@ export function isBlockedHost(host: string): boolean {
  * Peticiones de anuncios de vídeo por su forma, en cualquier dominio: etiquetas VAST/VMAP y Google Ad Manager.
  * (Se usa también dentro de la página: debe ser la misma expresión que AD_PATH en injected.ts.)
  */
-export const AD_PATH_RE = /\/gampad\/ads|\/pagead\/(ads|adview|conversion)|[?&](vast|vmap|adtagurl|ad_tag|vpaid)=|\/vast\d?(\.xml|\.php)?([?/#]|$)|\/vmap(\.xml)?([?/#]|$)|\/api\/stats\/ads|\/get_midroll_info|\/ad-provider\.js|\/(popunder|popads)\d*\.js/i;
+export const AD_PATH_RE = /\/gampad\/ads|\/pagead\/(ads|adview|conversion)|[?&](vast|vmap|adtagurl|ad_tag|vpaid)=|\/vast\d?(\.xml|\.php)?([?/#]|$)|\/vmap(\.xml)?([?/#]|$)|\/api\/stats\/ads|\/get_midroll_info|\/ad-provider\.js|\/(popunder|popads)\d*\.js|\/(pop|popunder|popup)\d+\.php|[?&]ad_?zones?(%5B%5D|\[\])?=/i;
 
 export function isBlockedUrl(url: string): boolean {
   const host = getHost(url);

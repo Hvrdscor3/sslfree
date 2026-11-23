@@ -190,6 +190,12 @@ var CSS = 'ins.adsbygoogle,[id^="google_ads"],[id^="div-gpt-ad"],[class*="adsbyg
   /* webs para adultos: zonas de ExoClick (<ins data-zoneid>), TrafficStars, JuicyAds y marcos de sus servidores */
   'ins[data-zoneid],ins[class^="eas"],[id^="ts_ad"],[class^="ts_ad"],iframe[src*="magsrv"],iframe[src*="exoclick"],' +
   'iframe[src*="exosrv"],iframe[src*="juicyads"],iframe[src*="jads.co"],iframe[src*="trafficjunky"],iframe[src*="tsyndicate"],' +
+  /* anuncios servidos por la propia web: contenedores con nombres de zona de anuncio (adframe, adnative, adzone...) */
+  '[id*="adframe"],[id^="adnative"],[class^="adnative"],[class*=" adnative"],[id^="adzone"],[class^="adzone"],[id^="ad-zone"],' +
+  '[id^="ad_zone"],[class*="ad-zone"],[id^="adbox"],[class^="adbox"],[class^="adstext"],[id^="ad-native"],[class*="ad-native"],' +
+  '[id^="banner-ad"],[class*="banner-ad"],[id^="ad-banner"],[class*="ad-banner"],[id^="ads-"],[class^="ads-"],' +
+  '[id$="-adv"],[id*="-adv-"],[class*="-adv-box"],[id^="adPlayer"],[class*="inplayer-iframe"],[id^="promosid"],' +
+  'iframe.dotcontainer,[id^="epad-"],' +
   (IS_YT ? YT_CSS : '') + '#__lb_none' +
   '{display:none!important;visibility:hidden!important}';
 function addStyle(){

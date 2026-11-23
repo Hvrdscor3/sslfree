@@ -32,6 +32,10 @@ test('redes de anuncios de webs para adultos (y el script de ExoClick aunque cam
   assert.ok(isBlockedUrl('https://dominio-nuevo-rotado.example/ad-provider.js'));
   assert.ok(isBlockedUrl('https://web.example/js/popunder2.js'));
   assert.ok(!isBlockedUrl('https://web.example/js/provider.js'));
+  // anuncios propios de la web (zonas de anuncio y pop-unders servidos desde su dominio)
+  assert.ok(isBlockedUrl('https://www.web.example/dot/dot.php?v=2&adZones%5B%5D=desktop.foot'));
+  assert.ok(isBlockedUrl('https://www.web.example/dot/pop4.php'));
+  assert.ok(!isBlockedUrl('https://www.web.example/video.php?zone=es'));
 });
 
 test('esquemas que abren otras apps', () => {
