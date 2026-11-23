@@ -11,6 +11,7 @@
  *  5. Controles de vídeo con el mando: OK = play/pausa, ←/→ = ±10 s, ↑/↓ = volumen.
  *  6. Expone window.__lb.video() para poner a pantalla completa el vídeo principal.
  *  7. Cursor virtual: flechas = mover puntero, OK = clic, bordes = desplazar. window.__lb.cursor() lo activa/desactiva.
+ *  8. YouTube: pide la mejor calidad disponible hasta 1080p.
  */
 export function buildInjectedScript(hosts: readonly string[]): string {
   return `(function(){
@@ -381,6 +382,18 @@ function curStop(){
 
 window.addEventListener('resize', function(){ if (cur.x >= 0) { cur.x = Math.min(cur.x, VW() - 2); cur.y = Math.min(cur.y, VH() - 2); curDraw(); } });
 document.addEventListener('fullscreenchange', curDraw);
+
+/* 8. YouTube: pide la mejor calidad disponible hasta 1080p (por defecto la web móvil elige 360p) */
+var YT_MAX = ['hd1080', 'hd720', 'large', 'medium'];
+function ytQuality(){
+  var p = document.getElementById('movie_player');
+  if (!p || typeof p.getAvailableQualityLevels !== 'function') return;
+  var lv = p.getAvailableQualityLevels() || [], want = '';
+  for (var i = 0; i < YT_MAX.length; i++) if (lv.indexOf(YT_MAX[i]) >= 0) { want = YT_MAX[i]; break; }
+  if (!want || p.getPlaybackQuality() === want) return;
+  try { if (p.setPlaybackQualityRange) p.setPlaybackQualityRange(want, want); if (p.setPlaybackQuality) p.setPlaybackQuality(want); } catch(e){}
+}
+if (/(^|\\.)youtube\\.com$/.test(location.hostname)) setInterval(ytQuality, 2000);
 
 /* Navegación dentro de la página (SPA): avisa a la app para actualizar la barra */
 ['pushState', 'replaceState'].forEach(function(m){
