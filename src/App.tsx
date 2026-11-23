@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Animated, BackHandler, LayoutChangeEvent, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { WebView } from '@amazon-devices/webview';
 import type { ShouldStartLoadRequest, WebViewMessageEvent, WebViewMethods } from '@amazon-devices/webview/dist/types/WebViewTypes';
 
@@ -14,6 +14,8 @@ const UA_MOBILE =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
 const UA_DESKTOP =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
+const CURSOR_IMG = require('./assets/cursor.png');
 
 // Se construye una sola vez: es la pieza que bloquea pop-ups y anuncios dentro de la página.
 const INJECTED = buildInjectedScript(hostsForInjection());
@@ -31,6 +33,33 @@ export default function App() {
   const [desktop, setDesktop] = useState(false);
   const [toast, setToast] = useState('');
   const pageBlocked = useRef(0);
+
+  // Cursor virtual dibujado por encima del WebView. La página manda su posición (px CSS) con post('cur');
+  // se convierte a unidades de React Native con el ancho real del WebView. Animated.Value evita re-renders.
+  const webSize = useRef({ w: 0, h: 0 });
+  const cx = useRef(new Animated.Value(-100)).current;
+  const cy = useRef(new Animated.Value(-100)).current;
+  const cOpacity = useRef(new Animated.Value(0)).current;
+  const rx = useRef(new Animated.Value(0)).current;
+  const ry = useRef(new Animated.Value(0)).current;
+  const rw = useRef(new Animated.Value(0)).current;
+  const rh = useRef(new Animated.Value(0)).current;
+  const rOpacity = useRef(new Animated.Value(0)).current;
+  // La página envía posiciones en proporción de su viewport (0..1); aquí se multiplican por el tamaño del WebView.
+  const onCursor = useCallback((d: [number, number, number, 0 | [number, number, number, number]]) => {
+    const [x, y, visible, ring] = d;
+    const { w, h } = webSize.current;
+    cx.setValue(x * w); cy.setValue(y * h); cOpacity.setValue(visible ? 1 : 0);
+    if (visible && ring) {
+      rx.setValue(ring[0] * w - 5); ry.setValue(ring[1] * h - 5); rw.setValue(ring[2] * w + 10); rh.setValue(ring[3] * h + 10);
+      rOpacity.setValue(1);
+    } else rOpacity.setValue(0);
+  }, [cx, cy, cOpacity, rx, ry, rw, rh, rOpacity]);
+  const flashClick = useCallback(() => {
+    cOpacity.setValue(0.35);
+    setTimeout(() => cOpacity.setValue(1), 120);
+  }, [cOpacity]);
+  const hideCursor = useCallback(() => { cOpacity.setValue(0); rOpacity.setValue(0); }, [cOpacity, rOpacity]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -81,15 +110,17 @@ export default function App() {
   }, []);
 
   const onMessage = useCallback((e: WebViewMessageEvent) => {
-    syncNav(e.nativeEvent);
     let msg: { type: string; data: any };
-    try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
+    try { msg = JSON.parse(e.nativeEvent.data); } catch { syncNav(e.nativeEvent); return; }
+    if (msg.type === 'cur') { onCursor(msg.data); return; } // llega en cada fotograma: camino rápido
+    if (msg.type === 'click') { flashClick(); return; }
+    syncNav(e.nativeEvent);
     switch (msg.type) {
       case 'stats': setBlocked(pageBlocked.current + Number(msg.data || 0)); break;
       case 'toast': showToast(String(msg.data)); break;
       case 'fullscreen': setBarVisible(!msg.data); break;
     }
-  }, [showToast, syncNav]);
+  }, [showToast, syncNav, onCursor, flashClick]);
 
   const webView = useMemo(() => {
     if (!url) return null;
@@ -109,14 +140,14 @@ export default function App() {
         allowsDefaultMediaControl
         injectedJavaScriptBeforeContentLoaded={INJECTED}
         onShouldStartLoadWithRequest={onShouldStart}
-        onLoadStart={(e) => { setLoading(true); pageBlocked.current = 0; syncNav(e.nativeEvent); }}
+        onLoadStart={(e) => { hideCursor(); setLoading(true); pageBlocked.current = 0; syncNav(e.nativeEvent); }}
         onLoad={(e) => { setLoading(false); syncNav(e.nativeEvent); inject(); }}
         onMessage={onMessage}
         onError={(e) => { setLoading(false); syncNav(e.nativeEvent); showToast('No se pudo cargar la página'); }}
         onCloseWindow={goHome}
       />
     );
-  }, [url, desktop, onShouldStart, inject, onMessage, showToast, syncNav, goHome]);
+  }, [url, desktop, onShouldStart, inject, onMessage, showToast, syncNav, goHome, hideCursor]);
 
   return (
     <View style={styles.root}>
@@ -139,7 +170,15 @@ export default function App() {
           onHide={() => url && setBarVisible(false)}
         />
       )}
-      <View style={styles.content}>{webView ?? <StartPage onOpen={open} />}</View>
+      <View style={styles.content} onLayout={(e: LayoutChangeEvent) => { webSize.current = { w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height }; }}>
+        {webView ?? <StartPage onOpen={open} />}
+        {webView && (
+          <>
+            <Animated.View pointerEvents="none" style={[styles.ring, { opacity: rOpacity, width: rw, height: rh, transform: [{ translateX: rx }, { translateY: ry }] }]} />
+            <Animated.Image source={CURSOR_IMG} style={[styles.cursor, { opacity: cOpacity, transform: [{ translateX: cx }, { translateY: cy }] }]} />
+          </>
+        )}
+      </View>
       {loading && <View style={[styles.progress, { top: barVisible ? 64 : 0 }]} />}
       {!!toast && <Text style={styles.toast}>{toast}</Text>}
     </View>
@@ -150,6 +189,9 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0e0f13' },
   content: { flex: 1 },
   web: { flex: 1, backgroundColor: '#000' },
+  // cursor.png (44x60 px) tiene la punta en (2,2): se desplaza 1 unidad para que la punta caiga en la posición exacta
+  cursor: { position: 'absolute', left: -1, top: -1, width: 22, height: 30 },
+  ring: { position: 'absolute', left: 0, top: 0, borderWidth: 3, borderColor: '#3b82f6', borderRadius: 8, backgroundColor: 'rgba(59,130,246,0.12)' },
   progress: { position: 'absolute', left: 0, right: 0, height: 3, backgroundColor: '#3b82f6' },
   toast: { position: 'absolute', bottom: 48, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.85)', color: '#fff', fontSize: 20 },
 });

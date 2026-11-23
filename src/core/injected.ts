@@ -175,10 +175,30 @@ document.addEventListener('fullscreenchange', function(){ post('fullscreen', !!f
 
 /* 7. Cursor virtual: las flechas mueven un puntero (con aceleración) y OK hace clic donde está.
    En los bordes desplaza la página; arriba del todo deja salir el foco hacia la barra de la app. */
-var cur = { on: true, x: -1, y: -1, el: null, ring: null, ringFor: null, ringT: 0, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0, ox: 0, oy: 0, fix: true };
+var cur = { on: true, x: -1, y: -1, el: null, ring: null, ringFor: null, ringT: 0, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0, ox: 0, oy: 0, fix: true, pq: 0, rr: 0 };
 /* Se cuelga de <html>, no de <body>: si la web pone transform/filter/contain en <body>,
    position:fixed deja de ser relativo a la pantalla. Además se mide y se compensa (cur.ox/oy)
    por si también <html> lo rompe. */
+/* En la app el cursor y el recuadro los dibuja React Native por ENCIMA del WebView (los campos de
+   texto del WebView de Vega se pintan en una capa propia que taparía cualquier elemento de la página).
+   Aquí se mantienen invisibles (opacity 0) para medir posiciones, y se envían a la app con post('cur'). */
+function NATIVE(){ return !!window.ReactNativeWebView; }
+/* Tamaño VISIBLE del viewport. En el WebView de Vega innerWidth/innerHeight incluyen lo que
+   desborda la página (p. ej. 2876x1427 con una pantalla de 1920x952), así que no sirven. */
+function VW(){ var v = window.visualViewport; return (v && v.width) || document.documentElement.clientWidth || window.innerWidth; }
+function VH(){ var v = window.visualViewport; return (v && v.height) || document.documentElement.clientHeight || window.innerHeight; }
+function curPost(){
+  if (!NATIVE() || cur.pq) return;
+  cur.pq = 1;
+  requestAnimationFrame(function(){
+    cur.pq = 0;
+    var vis = cur.on && !fsEl() && cur.x >= 0 ? 1 : 0;
+    /* en proporción del viewport (0..1): la app lo multiplica por su tamaño real, sin depender de la densidad */
+    var W = VW() || 1, H = VH() || 1, q = function(v, d){ return Math.round(v / d * 10000) / 10000; };
+    var rr = cur.rr ? [q(cur.rr[0], W), q(cur.rr[1], H), q(cur.rr[2], W), q(cur.rr[3], H)] : 0;
+    post('cur', [q(cur.x, W), q(cur.y, H), vis, rr]);
+  });
+}
 function curEl(){
   if (cur.el && cur.el.isConnected) return cur.el;
   var root = document.documentElement; if (!root) return null;
@@ -192,7 +212,7 @@ function curEl(){
 }
 function curDraw(){
   var d = curEl(); if (!d) return;
-  if (cur.x < 0) { cur.x = window.innerWidth / 2; cur.y = window.innerHeight / 2; }
+  if (cur.x < 0) { cur.x = VW() / 2; cur.y = VH() / 2; }
   d.style.display = cur.on && !fsEl() ? 'block' : 'none';
   d.style.transform = 'translate3d(' + (cur.x - cur.ox).toFixed(1) + 'px,' + (cur.y - cur.oy).toFixed(1) + 'px,0)';
   if (cur.fix && d.style.display === 'block') {
@@ -206,6 +226,15 @@ function curDraw(){
     }
   }
 }
+/* curDraw y curRing avisan a la app */
+/* window.ReactNativeWebView puede aparecer después de inyectar el script: la opacidad se decide en cada dibujo */
+var _curDraw = curDraw; curDraw = function(){
+  _curDraw();
+  var o = NATIVE() ? '0' : '1';
+  if (cur.el && cur.el.style.opacity !== o && !cur.flash) cur.el.style.opacity = o;
+  if (cur.ring && cur.ring.style.opacity !== o) cur.ring.style.opacity = o;
+  curPost();
+};
 /* si el desfase depende del scroll (fixed roto), se vuelve a medir al desplazar */
 window.addEventListener('scroll', function(){ if (cur.el) { cur.fix = true; curDraw(); cur.ringFor = null; curRing(); } }, { passive: true, capture: true });
 function curTarget(){ return document.elementFromPoint(cur.x, cur.y); }
@@ -227,9 +256,12 @@ function curRing(){
       'border-radius:8px;box-shadow:0 0 0 2px rgba(255,255,255,.85),0 0 14px rgba(59,130,246,.8);display:none;box-sizing:border-box');
     document.documentElement.appendChild(g);
   }
-  if (!c || !cur.on || fsEl()) { g.style.display = 'none'; return; }
+  cur.rr = 0;
+  if (!c || !cur.on || fsEl()) { g.style.display = 'none'; curPost(); return; }
   var r = c.getBoundingClientRect();
-  if (r.width * r.height > window.innerWidth * window.innerHeight * 0.4) { g.style.display = 'none'; return; }
+  if (r.width * r.height > VW() * VH() * 0.4) { g.style.display = 'none'; curPost(); return; }
+  cur.rr = [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  curPost();
   g.style.display = 'block';
   g.style.width = (r.width + 8) + 'px'; g.style.height = (r.height + 8) + 'px';
   g.style.transform = 'translate(' + (r.left - 4 - cur.ox) + 'px,' + (r.top - 4 - cur.oy) + 'px)';
@@ -272,7 +304,8 @@ function curClick(){
   if (f) { try { f.focus(); } catch(e){} } else if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); }
   mouse('pointerup', t); mouse('mouseup', t);
   if (typeof t.click === 'function') t.click(); else mouse('click', t);
-  var d = curEl(); if (d) { d.style.opacity = '0.4'; setTimeout(function(){ d.style.opacity = '1'; }, 120); }
+  var d = curEl(); if (d && !NATIVE()) { cur.flash = 1; d.style.opacity = '0.4'; setTimeout(function(){ cur.flash = 0; d.style.opacity = '1'; }, 120); }
+  if (NATIVE()) post('click', 1);
 }
 function editing(){
   var a = document.activeElement; if (!a) return false;
@@ -303,7 +336,7 @@ document.addEventListener('keydown', function(e){
 document.addEventListener('keyup', function(e){ if (DIRS[e.key] && e.key === cur.dir) curStop(); }, true);
 /* Mueve el cursor n píxeles en la dirección actual; en el borde desplaza la página. */
 function curStep(n){
-  var W = window.innerWidth, H = window.innerHeight, M = 2;
+  var W = VW(), H = VH(), M = 2;
   var nx = cur.x + cur.vx * n, ny = cur.y + cur.vy * n;
   if (nx < M || nx > W - M || ny < M || ny > H - M) curScroll(cur.vx * n * 1.5, cur.vy * n * 1.5);
   cur.x = Math.max(M, Math.min(W - M, nx)); cur.y = Math.max(M, Math.min(H - M, ny));
@@ -329,7 +362,8 @@ function curStop(){
   if (cur.raf) { cancelAnimationFrame(cur.raf); cur.raf = 0; }
   if (cur.dir) { cur.dir = ''; curHover(); }
 }
-window.addEventListener('resize', function(){ if (cur.x >= 0) { cur.x = Math.min(cur.x, window.innerWidth - 2); cur.y = Math.min(cur.y, window.innerHeight - 2); curDraw(); } });
+
+window.addEventListener('resize', function(){ if (cur.x >= 0) { cur.x = Math.min(cur.x, VW() - 2); cur.y = Math.min(cur.y, VH() - 2); curDraw(); } });
 document.addEventListener('fullscreenchange', curDraw);
 
 /* Navegación dentro de la página (SPA): avisa a la app para actualizar la barra */
