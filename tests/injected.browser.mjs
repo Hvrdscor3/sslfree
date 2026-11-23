@@ -112,6 +112,7 @@ const moveTo = async (tx, ty) => {
 const tapMoved = await (async () => { const a = await curPos(); await tap('ArrowRight'); const b = await curPos(); return b.x - a.x; })();
 check('cursor: un toque corto mueve poco (5-40 px)', tapMoved >= 5 && tapMoved <= 40);
 await moveTo(500, 260); // dentro del botón (400..600, 200..320)
+await cp.evaluate(() => document.getElementById('i').focus()); // como DuckDuckGo: un campo con foco
 const ring = await cp.evaluate(() => { const g = document.getElementById('__lb_ring'); if (!g) return null; const r = g.getBoundingClientRect(); return { d: getComputedStyle(g).display, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) }; });
 check('cursor: recuadro azul alrededor del botón bajo el puntero', !!ring && ring.d === 'block' && Math.abs(ring.x - 396) <= 2 && Math.abs(ring.y - 196) <= 2 && Math.abs(ring.w - 208) <= 2);
 await cp.keyboard.press('Enter');
@@ -133,7 +134,7 @@ const yb = await curY();
 check('cursor: mantener pulsado 0,8 s avanza más de 200 px', y0 - ya > 200);
 check('cursor: al soltar la flecha se detiene', ya === yb);
 check('cursor visible al cargar, en el centro', c0.shown === 'block' && Math.abs(c0.x - 400) < 3 && Math.abs(c0.y - 300) < 3);
-check('cursor: OK hace clic en el botón bajo el puntero', c1.clicked === 1);
+check('cursor: OK hace clic en el botón bajo el puntero (aunque otro campo tenga el foco)', c1.clicked === 1);
 check('cursor: OK sobre un input le da el foco', c2.focused === 'i');
 check('cursor: en el borde inferior desplaza la página', c3.scrollY > 0);
 

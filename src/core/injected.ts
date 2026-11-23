@@ -318,7 +318,10 @@ document.addEventListener('keydown', function(e){
   var k = e.key, dir = DIRS[k];
   if (!dir && k !== 'Enter') return;
   if (k === 'Enter') {
-    if (editing()) return; /* deja que el teclado en pantalla confirme el texto */
+    /* Sólo se deja pasar el Enter (p. ej. "Ir" del teclado en pantalla) si el cursor está sobre el MISMO campo
+       que se está editando. Muchas webs (DuckDuckGo) enfocan su buscador al cargar: si no, OK nunca haría clic. */
+    var a = document.activeElement, t = curTarget();
+    if (editing() && t && (t === a || a.contains(t))) return;
     e.preventDefault(); e.stopPropagation(); curClick(); return;
   }
   if (editing()) { document.activeElement.blur(); }
