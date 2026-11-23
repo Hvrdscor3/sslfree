@@ -190,7 +190,7 @@ function curDraw(){
   var d = curEl(); if (!d) return;
   if (cur.x < 0) { cur.x = window.innerWidth / 2; cur.y = window.innerHeight / 2; }
   d.style.display = cur.on && !fsEl() ? 'block' : 'none';
-  d.style.transform = 'translate(' + Math.round(cur.x) + 'px,' + Math.round(cur.y) + 'px)';
+  d.style.transform = 'translate3d(' + cur.x.toFixed(1) + 'px,' + cur.y.toFixed(1) + 'px,0)';
 }
 function curTarget(){ return document.elementFromPoint(cur.x, cur.y); }
 function mouse(type, el, extra){
@@ -222,7 +222,9 @@ function scrollable(el, dx, dy){
 function curScroll(dx, dy){
   var box = scrollable(curTarget(), dx, dy);
   var before = box ? box.scrollTop + box.scrollLeft : window.scrollY + window.scrollX;
-  if (box) box.scrollBy(dx, dy); else window.scrollBy(dx, dy);
+  /* instant: si la web usa scroll-behavior:smooth, cada fotograma encadenaría animaciones */
+  var o = { left: dx, top: dy, behavior: 'instant' };
+  try { if (box) box.scrollBy(o); else window.scrollBy(o); } catch(e) { if (box) box.scrollBy(dx, dy); else window.scrollBy(dx, dy); }
   var after = box ? box.scrollTop + box.scrollLeft : window.scrollY + window.scrollX;
   return after !== before;
 }
@@ -257,9 +259,7 @@ document.addEventListener('keydown', function(e){
   var now = Date.now();
   cur.lastKey = now;
   if (cur.dir !== k) {
-    /* pulsación nueva: un pequeño salto inmediato para que un toque corto también mueva */
     cur.dir = k; cur.vx = dir[0]; cur.vy = dir[1]; cur.start = now;
-    curStep(18);
   }
   if (!cur.raf) { cur.prev = 0; cur.raf = requestAnimationFrame(curTick); }
 }, true);
@@ -272,18 +272,18 @@ function curStep(n){
   cur.x = Math.max(M, Math.min(W - M, nx)); cur.y = Math.max(M, Math.min(H - M, ny));
   curDraw();
 }
-/* Movimiento continuo mientras se mantiene la flecha: 450 px/s al principio, hasta 1500 px/s. */
+/* Movimiento continuo mientras se mantiene la flecha, sin saltos: arranca a 160 px/s
+   (un toque de ~200 ms avanza unos 35 px, preciso) y acelera de forma progresiva hasta 1600 px/s.
+   El mando repite keydown cada ~200 ms y envía keyup al soltar. */
 function curTick(t){
   cur.raf = 0;
   if (!cur.dir) return;
   var now = Date.now();
   /* si el mando deja de repetir (sin keyup), se para solo */
-  if (now - cur.lastKey > 320) { curStop(); return; }
+  if (now - cur.lastKey > 350) { curStop(); return; }
   var dt = cur.prev ? Math.min(t - cur.prev, 50) : 16; cur.prev = t;
-  var held = (now - cur.start - 150) / 1000;
-  /* los primeros 150 ms no se mueve: un toque corto avanza sólo el salto inicial (precisión) */
-  if (held < 0) { cur.prev = 0; cur.raf = requestAnimationFrame(curTick); return; }
-  var v = Math.min(1500, 450 + held * 900);
+  var held = (now - cur.start) / 1000;
+  var v = Math.min(1600, 160 + 1300 * held * held);
   curStep(v * dt / 1000);
   cur.raf = requestAnimationFrame(curTick);
 }

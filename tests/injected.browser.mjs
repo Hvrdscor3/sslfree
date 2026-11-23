@@ -97,13 +97,24 @@ await cp.addInitScript(SCRIPT);
 await cp.goto(base + '/cursor');
 await cp.waitForTimeout(100);
 const c0 = await cp.evaluate(() => { const r = document.getElementById('__lb_cursor').getBoundingClientRect(); return { shown: getComputedStyle(document.getElementById('__lb_cursor')).display, x: r.x + 4, y: r.y + 4 }; });
-// Un toque corto (keydown + keyup inmediato) mueve 18 px
-const step = async (key, n) => { for (let i = 0; i < n; i++) { await cp.keyboard.press(key); await cp.waitForTimeout(30); } };
-await step('ArrowRight', 6); // de (400,300) a (508,300): dentro del botón
+// Toques como los del mando (~120 ms pulsado) hasta llegar al objetivo, midiendo la posición
+const curPos = () => cp.evaluate(() => { const r = document.getElementById('__lb_cursor').getBoundingClientRect(); return { x: r.x + 4, y: r.y + 4 }; });
+const tap = async (key) => { await cp.keyboard.down(key); await cp.waitForTimeout(120); await cp.keyboard.up(key); await cp.waitForTimeout(30); };
+const moveTo = async (tx, ty) => {
+  for (let i = 0; i < 60; i++) {
+    const p = await curPos();
+    if (Math.abs(p.x - tx) > 12) await tap(p.x < tx ? 'ArrowRight' : 'ArrowLeft');
+    else if (Math.abs(p.y - ty) > 6) await tap(p.y < ty ? 'ArrowDown' : 'ArrowUp');
+    else return p;
+  }
+  return curPos();
+};
+const tapMoved = await (async () => { const a = await curPos(); await tap('ArrowRight'); const b = await curPos(); return b.x - a.x; })();
+check('cursor: un toque corto mueve poco (5-40 px)', tapMoved >= 5 && tapMoved <= 40);
+await moveTo(500, 260); // dentro del botón (400..600, 200..320)
 await cp.keyboard.press('Enter');
 const c1 = await cp.evaluate(() => ({ clicked: window.__clicked || 0 }));
-await step('ArrowLeft', 22);  // x = 112
-await step('ArrowDown', 9);   // y = 462: dentro del input (450..~471)
+await moveTo(150, 460);  // dentro del input (100..~270, 450..~471)
 await cp.keyboard.press('Enter');
 const c2 = await cp.evaluate(() => ({ focused: document.activeElement && document.activeElement.id }));
 // Mantener pulsado (el mando repite keydown cada ~150 ms): movimiento continuo hasta el borde y desplazamiento
@@ -112,13 +123,12 @@ for (let i = 0; i < 12; i++) { await cp.keyboard.down('ArrowDown'); await cp.wai
 await cp.keyboard.up('ArrowDown');
 const c3 = await cp.evaluate(() => ({ scrollY: window.scrollY }));
 const y0 = await curY();
-await cp.keyboard.down('ArrowUp'); await cp.waitForTimeout(150); await cp.keyboard.down('ArrowUp'); await cp.waitForTimeout(150);
-await cp.keyboard.down('ArrowUp'); await cp.waitForTimeout(100);
+for (let i = 0; i < 4; i++) { await cp.keyboard.down('ArrowUp'); await cp.waitForTimeout(200); }
 await cp.keyboard.up('ArrowUp');
 const ya = await curY();
 await cp.waitForTimeout(400);
 const yb = await curY();
-check('cursor: mantener pulsado 0,4 s avanza más de 80 px', y0 - ya > 80);
+check('cursor: mantener pulsado 0,8 s avanza más de 200 px', y0 - ya > 200);
 check('cursor: al soltar la flecha se detiene', ya === yb);
 check('cursor visible al cargar, en el centro', c0.shown === 'block' && Math.abs(c0.x - 400) < 3 && Math.abs(c0.y - 300) < 3);
 check('cursor: OK hace clic en el botón bajo el puntero', c1.clicked === 1);
