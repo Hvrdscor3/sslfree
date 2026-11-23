@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 type Props = {
@@ -16,6 +16,8 @@ type Props = {
   onVideo: () => void;
   onToggleDesktop: () => void;
   onHide: () => void;
+  /** al cambiar, el foco del mando va a la barra de dirección */
+  focusRequest?: number;
 };
 
 function Btn({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
@@ -40,13 +42,13 @@ export default function Toolbar(p: Props) {
   // Al cerrar el teclado el TextInput (que tenía el foco) desaparece; sin esto el foco se perdía y el mando dejaba
   // de responder. Se devuelve al botón de la dirección.
   const urlRef = useRef<any>(null);
-  const stopEditing = () => {
-    setEditing(false);
-    setTimeout(() => {
-      const r = urlRef.current;
-      try { if (r?.requestTVFocus) r.requestTVFocus(); else r?.focus?.(); } catch {}
-    }, 60);
-  };
+  const focusUrl = () => setTimeout(() => {
+    const r = urlRef.current;
+    try { if (r?.requestTVFocus) r.requestTVFocus(); else r?.focus?.(); } catch {}
+  }, 60);
+  const stopEditing = () => { setEditing(false); focusUrl(); };
+  // La página pide ir a la barra (↑ arriba del todo o botón ⏪): el foco pasa a la dirección
+  useEffect(() => { if (p.focusRequest) focusUrl(); }, [p.focusRequest]);
 
   return (
     <View style={styles.bar}>

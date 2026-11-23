@@ -294,6 +294,18 @@ await tt.keyboard.down('ArrowRight'); await tt.waitForTimeout(150); await tt.key
 const ttc = await tt.evaluate(() => { const c = document.getElementById('__lb_cursor'); return c ? c.getBoundingClientRect().x + 4 : -1; });
 check('cursor funciona en webs con Trusted Types (YouTube)', ttc > 405);
 
+// Ir a la barra de dirección desde la página: ⏪ en cualquier momento, o ↑ con el cursor arriba del todo
+await nv.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'MediaRewind', bubbles: true })));
+await nv.waitForTimeout(50);
+const fb1 = navMsgs.filter((m) => m.type === 'focusbar').length;
+for (let i = 0; i < 6; i++) { await nv.keyboard.down('ArrowUp'); await nv.waitForTimeout(200); }
+await nv.keyboard.up('ArrowUp');
+await nv.keyboard.press('ArrowUp');
+await nv.waitForTimeout(50);
+const fb2 = navMsgs.filter((m) => m.type === 'focusbar').length;
+check('barra: el botón ⏪ lleva a la barra de dirección', fb1 === 1);
+check('barra: ↑ con el cursor arriba del todo lleva a la barra (lo hace la app, no el WebView)', fb2 >= 2);
+
 // Tras 2,5 s sin teclas el cursor se oculta (nada dibujado encima del vídeo) y vuelve con una flecha
 await nv.waitForTimeout(2700);
 const slept = navMsgs.filter((m) => m.type === 'cur').pop();

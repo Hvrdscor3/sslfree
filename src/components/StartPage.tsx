@@ -30,7 +30,7 @@ export default function StartPage({ onOpen }: { onOpen: (url: string) => void })
   return (
     <ScrollView contentContainerStyle={styles.wrap}>
       <Text style={styles.h1}>Navegador ligero</Text>
-      <Text style={styles.sub}>Sin pop-ups ni anuncios · ↑ para ir a la barra de direcciones</Text>
+      <Text style={styles.sub}>Sin pop-ups ni anuncios · ⏪ o ↑ arriba del todo: barra de direcciones</Text>
       <View style={styles.grid}>
         {BOOKMARKS.map((b, i) => (
           <Tile key={b.url} title={b.title} first={i === 0} onPress={() => onOpen(b.url)} />

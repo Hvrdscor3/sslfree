@@ -492,6 +492,8 @@ function curWake(){
 }
 lb.cursor = function(on){ cur.on = on === undefined ? !cur.on : !!on; curDraw(); post('toast', cur.on ? 'Cursor activado' : 'Cursor desactivado'); };
 window.addEventListener('keydown', function(e){
+  /* atajo: botón ⏪ del mando (fuera de la pantalla completa) = ir a la barra de dirección */
+  if ((e.key === 'MediaRewind' || e.keyCode === 227) && !fsEl()) { e.preventDefault(); e.stopPropagation(); curStop(); post('focusbar', 1); return; }
   if (!cur.on || fsEl()) return;
   var k = e.key, dir = DIRS[k];
   if (!dir && k !== 'Enter') return;
@@ -505,8 +507,11 @@ window.addEventListener('keydown', function(e){
   }
   if (editing()) { document.activeElement.blur(); }
   if (cur.x < 0) curDraw();
-  /* arriba del todo y sin nada que desplazar: deja que el foco salga a la barra */
-  if (k === 'ArrowUp' && cur.y <= 3 && !scrollable(curTarget(), 0, -1) && window.scrollY <= 0) { curStop(); return; }
+  /* arriba del todo y sin nada que desplazar: la APP lleva el foco a la barra (dejar que el WebView lo pasara
+     solo no funcionaba en muchas webs, que se quedan las flechas) */
+  if (k === 'ArrowUp' && cur.y <= 3 && !scrollable(curTarget(), 0, -1) && window.scrollY <= 0) {
+    curStop(); e.preventDefault(); e.stopPropagation(); post('focusbar', 1); return;
+  }
   e.preventDefault(); e.stopPropagation();
   var now = Date.now();
   cur.lastKey = now;

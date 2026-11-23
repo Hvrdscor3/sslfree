@@ -37,6 +37,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const pageBlocked = useRef(0);
   const pageFullscreen = useRef(false);
+  const [focusBar, setFocusBar] = useState(0); // cada incremento lleva el foco del mando a la barra de dirección
 
   // Cursor virtual dibujado por encima del WebView. La página manda su posición (px CSS) con post('cur');
   // se convierte a unidades de React Native con el ancho real del WebView. Animated.Value evita re-renders.
@@ -124,6 +125,7 @@ export default function App() {
     switch (msg.type) {
       case 'stats': setBlocked(pageBlocked.current + Number(msg.data || 0)); break;
       case 'toast': showToast(String(msg.data)); break;
+      case 'focusbar': setBarVisible(true); setFocusBar((n) => n + 1); break;
       case 'fullscreen':
         pageFullscreen.current = !!msg.data; setBarVisible(!msg.data);
         if (msg.data) showToast('Pantalla completa · ←/→ ±10 s · OK pausa · Atrás: salir y volver al cursor');
@@ -177,6 +179,7 @@ export default function App() {
           onVideo={() => web.current?.injectJavaScript(FULLSCREEN_VIDEO_JS)}
           onToggleDesktop={() => setDesktop((d) => !d)}
           onHide={() => url && setBarVisible(false)}
+          focusRequest={focusBar}
         />
       )}
       <View style={styles.content} onLayout={(e: LayoutChangeEvent) => { webSize.current = { w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height }; }}>
