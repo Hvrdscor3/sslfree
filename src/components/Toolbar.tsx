@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 type Props = {
@@ -36,6 +36,17 @@ function Btn({ label, onPress, disabled }: { label: string; onPress: () => void;
 export default function Toolbar(p: Props) {
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(false);
+  const [urlFocused, setUrlFocused] = useState(false);
+  // Al cerrar el teclado el TextInput (que tenía el foco) desaparece; sin esto el foco se perdía y el mando dejaba
+  // de responder. Se devuelve al botón de la dirección.
+  const urlRef = useRef<any>(null);
+  const stopEditing = () => {
+    setEditing(false);
+    setTimeout(() => {
+      const r = urlRef.current;
+      try { if (r?.requestTVFocus) r.requestTVFocus(); else r?.focus?.(); } catch {}
+    }, 60);
+  };
 
   return (
     <View style={styles.bar}>
@@ -43,20 +54,34 @@ export default function Toolbar(p: Props) {
       <Btn label="▶" onPress={p.onForward} disabled={!p.canGoForward} />
       <Btn label={p.loading ? '✕' : '⟳'} onPress={p.onReload} />
       <Btn label="⌂" onPress={p.onHome} />
-      <TextInput
-        style={[styles.input, editing && styles.inputFocused]}
-        value={editing ? text : p.url}
-        placeholder="Buscar o escribir dirección"
-        placeholderTextColor="#777"
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-        returnKeyType="go"
-        onFocus={() => { setEditing(true); setText(p.url); }}
-        onBlur={() => setEditing(false)}
-        onChangeText={setText}
-        onSubmitEditing={() => { setEditing(false); p.onSubmit(text); }}
-      />
+      {editing ? (
+        <TextInput
+          style={[styles.input, styles.inputFocused]}
+          value={text}
+          autoFocus
+          placeholder="Buscar o escribir dirección"
+          placeholderTextColor="#777"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          returnKeyType="go"
+          onBlur={stopEditing}
+          onChangeText={setText}
+          onSubmitEditing={() => { stopEditing(); p.onSubmit(text); }}
+        />
+      ) : (
+        // En el WebView de Vega, enfocar un TextInput abre el teclado: al pasar por la barra con las flechas
+        // se abría solo. Ahora es un botón con la dirección y el teclado sólo aparece al pulsar OK.
+        <Pressable
+          ref={urlRef}
+          style={[styles.input, styles.inputBtn, urlFocused && styles.inputFocused]}
+          onFocus={() => setUrlFocused(true)}
+          onBlur={() => setUrlFocused(false)}
+          onPress={() => { setText(p.url); setEditing(true); }}
+        >
+          <Text numberOfLines={1} style={[styles.inputText, !p.url && styles.placeholder]}>{p.url || 'Buscar o escribir dirección'}</Text>
+        </Pressable>
+      )}
       <Text style={styles.shield}>🛡 {p.blocked}</Text>
       <Btn label="▣ Vídeo" onPress={p.onVideo} />
       <Btn label={p.desktop ? 'PC' : 'Móvil'} onPress={p.onToggleDesktop} />
@@ -73,5 +98,8 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 20 },
   input: { flex: 1, height: 44, marginHorizontal: 8, paddingHorizontal: 14, borderRadius: 22, backgroundColor: '#23262e', color: '#fff', fontSize: 20, borderWidth: 2, borderColor: 'transparent' },
   inputFocused: { borderColor: '#3b82f6' },
+  inputBtn: { justifyContent: 'center' },
+  inputText: { color: '#fff', fontSize: 20 },
+  placeholder: { color: '#777' },
   shield: { color: '#4ade80', fontSize: 18, marginHorizontal: 10 },
 });

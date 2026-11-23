@@ -257,13 +257,33 @@ function mainVideo(){
   for (var i = 0; i < vs.length; i++) { var r = vs[i].getBoundingClientRect(); var a = r.width * r.height; if (a > area) { area = a; best = vs[i]; } }
   return best;
 }
-function fsEl(){ return document.fullscreenElement || document.webkitFullscreenElement; }
+function fsEl(){ return document.fullscreenElement || document.webkitFullscreenElement || (lb.fs && lb.fs.box); }
+/* Pantalla completa PROPIA (botón "Vídeo"): el reproductor se amplía con estilos a toda la pantalla. La del sistema
+   (requestFullscreen) rompía el reproductor de YouTube en el WebView de Vega ("Se produjo un error"). */
+var FS_STYLE = 'position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;' +
+  'width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;margin:0!important;' +
+  'z-index:2147483645!important;background:#000!important;transform:none!important';
 lb.video = function(){
+  if (lb.fs) { lb.exitVideo(); return; }
   var v = mainVideo();
   if (!v) { post('toast', 'No hay vídeo en esta página'); return; }
-  try { (v.requestFullscreen || v.webkitRequestFullscreen || v.webkitEnterFullscreen).call(v); } catch(e){}
-  try { v.play(); } catch(e){}
-  v.focus && v.focus();
+  var box = (v.closest && v.closest('.html5-video-player,#movie_player,.video-js,.jwplayer,.plyr,.fp-player,.bitmovinplayer-container')) || v;
+  lb.fs = { box: box, v: v, boxStyle: box.getAttribute('style'), vStyle: v.getAttribute('style') };
+  box.setAttribute('style', (lb.fs.boxStyle || '') + ';' + FS_STYLE);
+  if (box !== v) v.setAttribute('style', (lb.fs.vStyle || '') + ';width:100%!important;height:100%!important;left:0!important;top:0!important;object-fit:contain!important');
+  try { window.dispatchEvent(new Event('resize')); } catch(e){}
+  try { var pr = v.play(); if (pr && pr.catch) pr.catch(function(){}); } catch(e){}
+  post('fullscreen', true);
+  curDraw();
+};
+lb.exitVideo = function(){
+  var f = lb.fs; if (!f) return;
+  lb.fs = null;
+  if (f.boxStyle === null) f.box.removeAttribute('style'); else f.box.setAttribute('style', f.boxStyle);
+  if (f.box !== f.v) { if (f.vStyle === null) f.v.removeAttribute('style'); else f.v.setAttribute('style', f.vStyle); }
+  try { window.dispatchEvent(new Event('resize')); } catch(e){}
+  post('fullscreen', false);
+  curDraw();
 };
 window.addEventListener('keydown', function(e){
   var f = fsEl(); if (!f) return;
@@ -281,7 +301,7 @@ document.addEventListener('fullscreenchange', function(){ post('fullscreen', !!f
 
 /* 7. Cursor virtual: las flechas mueven un puntero (con aceleración) y OK hace clic donde está.
    En los bordes desplaza la página; arriba del todo deja salir el foco hacia la barra de la app. */
-var cur = { on: true, x: -1, y: -1, el: null, ring: null, ringFor: null, ringT: 0, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0, ox: 0, oy: 0, fix: true, pq: 0, rr: 0 };
+var cur = { on: true, x: -1, y: -1, el: null, ring: null, ringFor: null, ringT: 0, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0, ox: 0, oy: 0, fix: true, pq: 0, rr: 0, scrollQ: 0 };
 /* Se cuelga de <html>, no de <body>: si la web pone transform/filter/contain en <body>,
    position:fixed deja de ser relativo a la pantalla. Además se mide y se compensa (cur.ox/oy)
    por si también <html> lo rompe. */
@@ -347,10 +367,18 @@ var _curDraw = curDraw; curDraw = function(){
   curPost();
 };
 /* si el desfase depende del scroll (fixed roto), se vuelve a medir al desplazar */
-window.addEventListener('scroll', function(){ if (cur.el) { cur.fix = true; curDraw(); cur.ringFor = null; curRing(); } }, { passive: true, capture: true });
-function curTarget(){ return document.elementFromPoint(cur.x, cur.y); }
+window.addEventListener('scroll', function(){
+  if (!cur.el || cur.sleep || cur.scrollQ) return;
+  cur.scrollQ = 1;
+  requestAnimationFrame(function(){ cur.scrollQ = 0; cur.fix = true; curDraw(); cur.ringFor = null; curRing(); });
+}, { passive: true, capture: true });
+/* El cursor vive en coordenadas de la parte VISIBLE (visualViewport); elementFromPoint y los eventos de ratón
+   usan las del viewport de diseño: si la página tiene zoom o está desplazada, se suma ese desfase. */
+function VX(){ var v = window.visualViewport; return v ? v.offsetLeft : 0; }
+function VY(){ var v = window.visualViewport; return v ? v.offsetTop : 0; }
+function curTarget(){ return document.elementFromPoint(cur.x + VX(), cur.y + VY()); }
 function mouse(type, el, extra){
-  var o = { bubbles: true, cancelable: true, view: window, clientX: cur.x, clientY: cur.y, button: 0 };
+  var o = { bubbles: true, cancelable: true, view: window, clientX: cur.x + VX(), clientY: cur.y + VY(), button: 0 };
   for (var k in extra) o[k] = extra[k];
   try { el.dispatchEvent(type.indexOf('pointer') === 0 && window.PointerEvent ? new PointerEvent(type, o) : new MouseEvent(type, o)); } catch(e){}
 }
@@ -371,7 +399,7 @@ function curRing(){
   if (!c || !cur.on || cur.sleep || fsEl()) { g.style.display = 'none'; curPost(); return; }
   var r = c.getBoundingClientRect();
   if (r.width * r.height > VW() * VH() * 0.4) { g.style.display = 'none'; curPost(); return; }
-  cur.rr = [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  cur.rr = [Math.round(r.left - VX()), Math.round(r.top - VY()), Math.round(r.width), Math.round(r.height)];
   curPost();
   g.style.display = NATIVE() ? 'none' : 'block';
   g.style.width = (r.width + 8) + 'px'; g.style.height = (r.height + 8) + 'px';
@@ -408,10 +436,34 @@ function curScroll(dx, dy){
   var after = box ? box.scrollTop + box.scrollLeft : window.scrollY + window.scrollX;
   return after !== before;
 }
+/* OK sobre un marco (iframe): si es de la misma web se pulsa el elemento de dentro; si es de otra web
+   (p. ej. un reproductor incrustado) y es grande, se abre a pantalla completa en el navegador, porque
+   desde fuera no se puede pulsar dentro y darle el foco dejaría el mando "atrapado" en el marco. */
+function clickInFrame(fr){
+  var r = fr.getBoundingClientRect(), doc = null;
+  try { doc = fr.contentDocument; } catch(e){}
+  if (doc && doc.elementFromPoint) {
+    var x = cur.x + VX() - r.left, y = cur.y + VY() - r.top, el = doc.elementFromPoint(x, y);
+    if (el) {
+      var o = { bubbles: true, cancelable: true, view: fr.contentWindow, clientX: x, clientY: y, button: 0 };
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function(tp){ try { el.dispatchEvent(new MouseEvent(tp, o)); } catch(e){} });
+      if (typeof el.click === 'function') el.click();
+      return true;
+    }
+  }
+  var src = fr.src || '';
+  if (/^https?:/i.test(src) && r.width >= 200 && r.height >= 120 && !blocked(src)) {
+    post('toast', 'Abriendo el contenido incrustado…');
+    location.href = src;
+    return true;
+  }
+  return false;
+}
 function curClick(){
   var t = curTarget(); if (!t) return;
+  if (t.tagName === 'IFRAME' || t.tagName === 'FRAME') { clickInFrame(t); if (NATIVE()) post('click', 1); return; }
   mouse('pointerdown', t); mouse('mousedown', t);
-  var f = t.closest ? t.closest('input,textarea,select,[contenteditable=""],[contenteditable="true"],iframe') : null;
+  var f = t.closest ? t.closest('input,textarea,select,[contenteditable=""],[contenteditable="true"]') : null;
   if (f) { try { f.focus(); } catch(e){} } else if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); }
   mouse('pointerup', t); mouse('mouseup', t);
   if (typeof t.click === 'function') t.click(); else mouse('click', t);
@@ -423,6 +475,14 @@ function editing(){
   return a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable;
 }
 var DIRS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+/* Si el foco del teclado acaba dentro de un marco (reproductores incrustados, autofocus...), las teclas del mando
+   ya no llegan a esta página y el cursor "desaparece": se recupera el foco. */
+function frameFocusGuard(){
+  var a = document.activeElement;
+  if (a && (a.tagName === 'IFRAME' || a.tagName === 'FRAME')) { try { a.blur(); } catch(e){} try { window.focus(); } catch(e){} }
+}
+window.addEventListener('blur', function(){ setTimeout(frameFocusGuard, 0); });
+setInterval(frameFocusGuard, 1000);
 /* Se oculta tras 2,5 s sin usar el mando: así no queda nada dibujado encima de un vídeo
    (una capa encima obliga a componer el vídeo y en el Firestick se pierden fotogramas). */
 function curWake(){

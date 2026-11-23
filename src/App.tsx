@@ -16,6 +16,9 @@ const UA_DESKTOP =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
 const CURSOR_IMG = require('./assets/cursor.png');
+const EXIT_FULLSCREEN_JS =
+  '(function(){var d=document;try{window.__lb&&window.__lb.exitVideo&&window.__lb.exitVideo()}catch(e){}' +
+  'try{if(d.fullscreenElement||d.webkitFullscreenElement)(d.exitFullscreen||d.webkitExitFullscreen).call(d)}catch(e){}})(); true;';
 
 // Se construye una sola vez: es la pieza que bloquea pop-ups y anuncios dentro de la página.
 const INJECTED = buildInjectedScript(hostsForInjection(), AD_PATH_RE.source);
@@ -33,6 +36,7 @@ export default function App() {
   const [desktop, setDesktop] = useState(false);
   const [toast, setToast] = useState('');
   const pageBlocked = useRef(0);
+  const pageFullscreen = useRef(false);
 
   // Cursor virtual dibujado por encima del WebView. La página manda su posición (px CSS) con post('cur');
   // se convierte a unidades de React Native con el ancho real del WebView. Animated.Value evita re-renders.
@@ -82,6 +86,8 @@ export default function App() {
   // Botón "Atrás" del mando
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      // Vídeo a pantalla completa (ahí el cursor se oculta y las flechas son avance/volumen): Atrás sale de ella
+      if (pageFullscreen.current) { pageFullscreen.current = false; web.current?.injectJavaScript(EXIT_FULLSCREEN_JS); setBarVisible(true); return true; }
       if (!barVisible) { setBarVisible(true); return true; }
       if (url && canGoBack) { web.current?.goBack(); return true; }
       if (url) { goHome(); return true; }
@@ -118,7 +124,10 @@ export default function App() {
     switch (msg.type) {
       case 'stats': setBlocked(pageBlocked.current + Number(msg.data || 0)); break;
       case 'toast': showToast(String(msg.data)); break;
-      case 'fullscreen': setBarVisible(!msg.data); break;
+      case 'fullscreen':
+        pageFullscreen.current = !!msg.data; setBarVisible(!msg.data);
+        if (msg.data) showToast('Pantalla completa · ←/→ ±10 s · OK pausa · Atrás: salir y volver al cursor');
+        break;
     }
   }, [showToast, syncNav, onCursor, flashClick]);
 

@@ -202,6 +202,59 @@ check('YouTube: anuncios quitados de fetch().json() del reproductor', !ytr.fetch
 check('YouTube: si sale un anuncio se pulsa "Saltar"', ytr.skipped);
 check('YouTube: promociones del feed ocultas sin tocar el resto', ytr.promoHidden && ytr.okShown);
 
+// Marcos (iframes): el mando no debe quedar "atrapado" dentro y el cursor debe seguir funcionando
+const frm = await ctx.newPage();
+frm.on('dialog', (d) => d.dismiss());
+await frm.setViewportSize({ width: 800, height: 600 });
+await frm.route(base + '/frames', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body style="margin:0">
+  <iframe id="same" style="position:absolute;left:300px;top:250px;width:200px;height:100px;border:0"
+    srcdoc="<body style='margin:0'><button id='b' style='width:200px;height:100px' onclick='parent.__inner=1'>dentro</button></body>"></iframe>
+  <iframe id="embed" src="https://player.example-embed.com/v/1" style="position:absolute;left:0;top:0;width:280px;height:200px;border:0"></iframe>
+  </body>` }));
+await frm.route('https://player.example-embed.com/**', (route) => route.fulfill({ contentType: 'text/html', body: '<body>reproductor</body>' }));
+await frm.addInitScript(SCRIPT);
+await frm.goto(base + '/frames');
+await frm.waitForTimeout(300);
+await frm.keyboard.press('Enter'); // el cursor empieza en (400,300): encima del iframe de la misma web
+await frm.waitForTimeout(100);
+const f1 = await frm.evaluate(() => ({ inner: !!window.__inner, active: document.activeElement && document.activeElement.tagName }));
+check('marco de la misma web: OK pulsa el botón de dentro', f1.inner);
+check('marco: el foco del mando no se queda dentro del iframe', f1.active !== 'IFRAME');
+// una web que mete el foco en un marco: se recupera y las flechas siguen moviendo el cursor
+await frm.evaluate(() => document.getElementById('same').focus());
+await frm.waitForTimeout(1200);
+const f2 = await frm.evaluate(() => document.activeElement && document.activeElement.tagName);
+check('marco: si una web le da el foco a un iframe, se recupera', f2 !== 'IFRAME');
+// reproductor incrustado de otra web: OK lo abre en el navegador (desde fuera no se puede pulsar dentro)
+for (let i = 0; i < 6; i++) { await frm.keyboard.down('ArrowLeft'); await frm.waitForTimeout(200); }
+await frm.keyboard.up('ArrowLeft');
+for (let i = 0; i < 5; i++) { await frm.keyboard.down('ArrowUp'); await frm.waitForTimeout(200); }
+await frm.keyboard.up('ArrowUp');
+await frm.keyboard.press('Enter');
+await frm.waitForTimeout(500);
+check('reproductor incrustado de otra web: OK lo abre', frm.url().startsWith('https://player.example-embed.com/'));
+
+// Pantalla completa propia (botón "Vídeo"): amplía el reproductor, oculta el cursor y Atrás (exitVideo) lo restaura
+const pf = await ctx.newPage();
+const pfMsgs = [];
+await pf.exposeFunction('__rnPost3', (m) => pfMsgs.push(JSON.parse(m)));
+await pf.addInitScript(`window.ReactNativeWebView = { postMessage: function(m){ window.__rnPost3(m); } };`);
+await pf.setViewportSize({ width: 800, height: 600 });
+await pf.route(base + '/pfs', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body style="margin:0">
+  <div class="video-js" id="box" style="width:320px;height:180px;margin:50px"><video id="v" style="width:320px;height:180px"></video></div></body>` }));
+await pf.addInitScript(SCRIPT);
+await pf.goto(base + '/pfs');
+await pf.evaluate(() => window.__lb.video());
+await pf.waitForTimeout(100);
+const pf1 = await pf.evaluate(() => { const r = document.getElementById('box').getBoundingClientRect(); return { w: r.width, h: r.height }; });
+const lastCur1 = pfMsgs.filter((m) => m.type === 'cur').pop();
+await pf.evaluate(() => window.__lb.exitVideo());
+await pf.waitForTimeout(100);
+const pf2 = await pf.evaluate(() => { const b = document.getElementById('box'); const r = b.getBoundingClientRect(); return { w: r.width, style: b.getAttribute('style') }; });
+check('pantalla completa propia: el reproductor ocupa toda la pantalla', pf1.w === 800 && pf1.h === 600);
+check('pantalla completa propia: avisa a la app y oculta el cursor', pfMsgs.some((m) => m.type === 'fullscreen' && m.data === true) && lastCur1 && lastCur1.data[2] === 0);
+check('pantalla completa propia: al salir se restaura el reproductor', pf2.w === 320 && pf2.style === 'width:320px;height:180px;margin:50px' && pfMsgs.some((m) => m.type === 'fullscreen' && m.data === false));
+
 // Saltador universal: un reproductor cualquiera con anuncio de Google IMA encima del contenido
 const ima = await ctx.newPage();
 ima.on('dialog', (d) => d.dismiss());
