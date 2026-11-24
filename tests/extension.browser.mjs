@@ -6,7 +6,7 @@
  */
 import { createRequire } from 'node:module';
 import http from 'node:http';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +51,19 @@ for (let i = 0; i < 50; i++) {
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'OK   ' : 'FAIL ') + name); if (!cond) fails++; };
+
+// Chrome descarta en silencio las regexFilter que no admite (p. ej. más de 2 KB compiladas)
+const rules = JSON.parse(readFileSync(join(ext, 'rules.json'), 'utf8'));
+const bad = await sw.evaluate(async (rs) => {
+  const out = [];
+  for (const r of rs) {
+    if (!r.condition.regexFilter) continue;
+    const res = await chrome.declarativeNetRequest.isRegexSupported({ regex: r.condition.regexFilter, isCaseSensitive: false });
+    if (!res.isSupported) out.push(r.id + ': ' + res.reason);
+  }
+  return out;
+}, rules);
+check(`todas las regexFilter son válidas para Chrome ${bad.join(', ')}`, bad.length === 0);
 
 await sw.evaluate(() => { globalThis.__deltas = 0;
   chrome.runtime.onMessage.addListener((m) => { if (m && m.type === 'blocked') globalThis.__deltas += m.delta; }); });

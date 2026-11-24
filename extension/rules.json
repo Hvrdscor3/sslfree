@@ -246,7 +246,257 @@
       "type": "block"
     },
     "condition": {
-      "regexFilter": "\\/gampad\\/ads|\\/pagead\\/(ads|adview|conversion)|[?&](vast|vmap|adtagurl|ad_tag|vpaid)=|\\/vast\\d?(\\.xml|\\.php)?([?/#]|$)|\\/vmap(\\.xml)?([?/#]|$)|\\/api\\/stats\\/ads|\\/get_midroll_info|\\/ad-provider\\.js|\\/(popunder|popads)\\d*\\.js|\\/(pop|popunder|popup)\\d+\\.php|[?&]ad_?zones?(%5B%5D|\\[\\])?=",
+      "regexFilter": "\\/gampad\\/ads",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/pagead\\/(ads|adview|conversion)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "[?&](vast|vmap|adtagurl|ad_tag|vpaid)=",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 5,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/vast\\d?(\\.xml|\\.php)?([?/#]|$)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 6,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/vmap(\\.xml)?([?/#]|$)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 7,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/api\\/stats\\/ads",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 8,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/get_midroll_info",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 9,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/ad-provider\\.js",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 10,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/(popunder|popads)\\d*\\.js",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 11,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "\\/(pop|popunder|popup)\\d+\\.php",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": [
+        "sub_frame",
+        "script",
+        "image",
+        "xmlhttprequest",
+        "media",
+        "ping",
+        "stylesheet",
+        "font",
+        "object",
+        "websocket",
+        "webtransport",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 12,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "[?&]ad_?zones?(%5B%5D|\\[\\])?=",
       "isUrlFilterCaseSensitive": false,
       "resourceTypes": [
         "sub_frame",
