@@ -22,6 +22,7 @@ const PAGE = `<!doctype html><html><head><title>t</title>
 <a id="blank" href="/other" target="_blank">enlace</a>
 <button id="pop" onclick="window.__w = window.open('http://popads.net:PORT/pop')">pop</button>
 <script>
+  window.__vast = fetch('/player/vast.xml?x=1').then(()=> 'ok', ()=> 'blocked');
   window.__fetch = fetch('http://taboola.com:PORT/data').then(()=> 'ok', ()=> 'blocked');
   window.__alert = (alert('x'), 'done');
 </script>
@@ -61,9 +62,12 @@ check('script de anuncio no se ejecuta', !(await page.evaluate(() => window.__ad
 check('ninguna petición llega a dominios de anuncios',
   !hits.some((h) => /doubleclick|criteo|taboola|popads/.test(h)));
 check('fetch a anuncio bloqueado', (await page.evaluate(() => window.__fetch)) === 'blocked');
+check('petición VAST (por ruta) bloqueada', (await page.evaluate(() => window.__vast)) === 'blocked'
+  && !hits.some((h) => h.includes('vast')));
 check('alert silenciado', (await page.evaluate(() => window.__alert)) === 'done');
 check('contenedor de anuncio oculto',
   (await page.evaluate(() => getComputedStyle(document.getElementById('adbox')).display)) === 'none');
+check('sin cursor virtual de la TV', await page.evaluate(() => !document.getElementById('__lb_cursor')));
 check('contenido normal visible', await page.isVisible('#ok'));
 check('target=_blank pasa a _self',
   (await page.evaluate(() => document.getElementById('blank').target)) === '_self');
@@ -95,7 +99,7 @@ const popup = await ctx.newPage();
 const id = sw.url().split('/')[2];
 await popup.goto(`chrome-extension://${id}/popup.html`);
 await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'setSite', site: 'site.test', enabled: false }));
-await popup.waitForTimeout(300);
+await popup.waitForTimeout(800);
 check('popup informa sitio desactivado',
   (await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'getSite', site: 'site.test' }))).enabled === false);
 await page2.goto(`http://site.test:${port}/`);
@@ -104,7 +108,7 @@ check('sitio desactivado: el anuncio se carga', await page2.evaluate(() => windo
 check('sitio desactivado: sin script inyectado', await page2.evaluate(() => !window.__lb));
 
 await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'setSite', site: 'site.test', enabled: true }));
-await popup.waitForTimeout(300);
+await popup.waitForTimeout(800);
 await page2.reload(); await page2.waitForTimeout(500);
 check('reactivado: anuncio bloqueado otra vez', await page2.evaluate(() => !window.__adRan && !!window.__lb));
 

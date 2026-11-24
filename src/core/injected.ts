@@ -13,9 +13,11 @@
  *  7. Cursor virtual: flechas = mover puntero, OK = clic, bordes = desplazar. window.__lb.cursor() lo activa/desactiva.
  *  8. YouTube: pide la mejor calidad disponible hasta 1080p.
  */
-export function buildInjectedScript(hosts: readonly string[], adPathSource = ''): string {
+export function buildInjectedScript(hosts: readonly string[], adPathSource = '', tv = true): string {
   return `(function(){
 if (window.__lb) { return; }
+/* tv=false (extensión de Chrome): sin cursor virtual, sin robar el foco a los marcos y sin forzar calidad en YouTube */
+var TV = ${tv ? 'true' : 'false'};
 var HOSTS = {};
 ${JSON.stringify(hosts)}.forEach(function(h){ HOSTS[h] = 1; });
 /* peticiones de anuncios de vídeo por su forma (VAST/VMAP, Ad Manager), en cualquier dominio */
@@ -304,7 +306,7 @@ document.addEventListener('fullscreenchange', function(){ post('fullscreen', !!f
 
 /* 7. Cursor virtual: las flechas mueven un puntero (con aceleración) y OK hace clic donde está.
    En los bordes desplaza la página; arriba del todo deja salir el foco hacia la barra de la app. */
-var cur = { on: true, x: -1, y: -1, el: null, ring: null, ringFor: null, ringT: 0, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0, ox: 0, oy: 0, fix: true, pq: 0, rr: 0, scrollQ: 0 };
+var cur = { on: TV, x: -1, y: -1, el: null, ring: null, ringFor: null, ringT: 0, hover: null, dir: '', vx: 0, vy: 0, start: 0, lastKey: 0, prev: 0, raf: 0, ox: 0, oy: 0, fix: true, pq: 0, rr: 0, scrollQ: 0 };
 /* Se cuelga de <html>, no de <body>: si la web pone transform/filter/contain en <body>,
    position:fixed deja de ser relativo a la pantalla. Además se mide y se compensa (cur.ox/oy)
    por si también <html> lo rompe. */
@@ -345,6 +347,7 @@ function curEl(){
   root.appendChild(d); cur.el = d; return d;
 }
 function curDraw(){
+  if (!TV) return;
   var d = curEl(); if (!d) return;
   if (cur.x < 0) { cur.x = VW() / 2; cur.y = VH() / 2; }
   d.style.display = cur.on && !cur.sleep && !fsEl() ? 'block' : 'none';
@@ -484,11 +487,14 @@ function frameFocusGuard(){
   var a = document.activeElement;
   if (a && (a.tagName === 'IFRAME' || a.tagName === 'FRAME')) { try { a.blur(); } catch(e){} try { window.focus(); } catch(e){} }
 }
-window.addEventListener('blur', function(){ setTimeout(frameFocusGuard, 0); });
-setInterval(frameFocusGuard, 1000);
+if (TV) {
+  window.addEventListener('blur', function(){ setTimeout(frameFocusGuard, 0); });
+  setInterval(frameFocusGuard, 1000);
+}
 /* Se oculta tras 2,5 s sin usar el mando: así no queda nada dibujado encima de un vídeo
    (una capa encima obliga a componer el vídeo y en el Firestick se pierden fotogramas). */
 function curWake(){
+  if (!TV) return;
   if (cur.sleep) { cur.sleep = 0; curDraw(); cur.ringFor = null; curRing(); }
   clearTimeout(cur.idleT);
   cur.idleT = setTimeout(function(){ if (cur.dir) { curWake(); return; } cur.sleep = 1; curPost(); }, 2500);
@@ -496,7 +502,7 @@ function curWake(){
 lb.cursor = function(on){ cur.on = on === undefined ? !cur.on : !!on; curDraw(); post('toast', cur.on ? 'Cursor activado' : 'Cursor desactivado'); };
 window.addEventListener('keydown', function(e){
   /* atajo: botón ⏪ del mando (fuera de la pantalla completa) = ir a la barra de dirección */
-  if ((e.key === 'MediaRewind' || e.keyCode === 227) && !fsEl()) { e.preventDefault(); e.stopPropagation(); curStop(); post('focusbar', 1); return; }
+  if (TV && (e.key === 'MediaRewind' || e.keyCode === 227) && !fsEl()) { e.preventDefault(); e.stopPropagation(); curStop(); post('focusbar', 1); return; }
   if (!cur.on || fsEl()) return;
   var k = e.key, dir = DIRS[k];
   if (!dir && k !== 'Enter') return;
@@ -566,7 +572,7 @@ function ytQuality(){
   if (!want || p.getPlaybackQuality() === want) return;
   try { if (p.setPlaybackQualityRange) p.setPlaybackQualityRange(want, want); if (p.setPlaybackQuality) p.setPlaybackQuality(want); } catch(e){}
 }
-if (/(^|\\.)youtube\\.com$/.test(location.hostname)) setInterval(ytQuality, 2000);
+if (TV && /(^|\\.)youtube\\.com$/.test(location.hostname)) setInterval(ytQuality, 2000);
 
 /* Navegación dentro de la página (SPA): avisa a la app para actualizar la barra */
 ['pushState', 'replaceState'].forEach(function(m){
