@@ -47,7 +47,8 @@ EventTarget.prototype.addEventListener = function(type, fn, opts){
   return origAEL.call(this, type, fn, opts);
 };
 
-/* 2. Red */
+/* 2. Red (en la extensión lo hace Chrome con declarativeNetRequest: no hace falta tocar la página) */
+if (TV) {
 if (window.fetch) {
   var of = window.fetch;
   window.fetch = function(input, init){
@@ -62,7 +63,16 @@ XMLHttpRequest.prototype.open = function(m, u){
   return xo.apply(this, arguments);
 };
 var xs = XMLHttpRequest.prototype.send;
-XMLHttpRequest.prototype.send = function(){ if (this.__lbBlocked) { try { this.abort(); } catch(e){} return; } return xs.apply(this, arguments); };
+/* Bloqueado: se responde como un error de red. Abortar sin eventos dejaba a los reproductores esperando
+   al anuncio hasta su tiempo límite (la página tardaba mucho en empezar el vídeo). */
+XMLHttpRequest.prototype.send = function(){
+  if (!this.__lbBlocked) return xs.apply(this, arguments);
+  var x = this;
+  setTimeout(function(){
+    try { Object.defineProperty(x, 'readyState', { value: 4, configurable: true }); Object.defineProperty(x, 'status', { value: 0, configurable: true }); } catch(e){}
+    ['readystatechange', 'error', 'loadend'].forEach(function(t){ try { x.dispatchEvent(new (t === 'readystatechange' ? Event : ProgressEvent)(t)); } catch(e){} });
+  }, 0);
+};
 if (navigator.sendBeacon) { var sb = navigator.sendBeacon.bind(navigator); navigator.sendBeacon = function(u, d){ return blocked(u) ? true : sb(u, d); }; }
 
 function guardSrc(proto, attr){
@@ -79,6 +89,7 @@ Element.prototype.setAttribute = function(n, v){
   if ((n === 'src' || n === 'href') && /^(SCRIPT|IFRAME|IMG|LINK)$/.test(this.tagName) && blocked(v)) return;
   return osa.call(this, n, v);
 };
+}
 
 /* 9. Anuncios de YouTube (se pone aquí para que JSON.parse se intercepte antes de que cargue la web):
    a) se borran los datos de anuncios de las respuestas del reproductor (adPlacements, playerAds, adSlots);
@@ -120,7 +131,9 @@ if (IS_YT) {
    pulsa "Saltar", silencia el vídeo del anuncio y lo lleva al final. Sólo trabaja si la página tiene vídeos. */
 var AD_STATE = '.html5-video-player.ad-showing,.html5-video-player.ad-interrupting,.vjs-ad-playing,.vjs-ad-loading,' +
   '.jw-flag-ads,.jw-flag-ads-vpaid,.bmpui-ui-skin-ads,.bmpui-player-state-ad,.fp-is-ad,.is-ad-playing,.ad-playing,' +
-  '[data-ad-playing="true"],.bc-player-ad-playing,.vjs-ad-content-resuming';
+  '[data-ad-playing="true"],.bc-player-ad-playing';
+/* (sin .vjs-ad-loading ni .vjs-ad-content-resuming: ahí el <video> es el CONTENIDO esperando a un anuncio
+   que ya hemos bloqueado; adelantarlo cortaba la reproducción nada más darle a play) */
 var AD_LAYER = '.ima-ad-container,.videoAdUi,[id^="ima-ad"],.jw-plugin-vast,.vjs-ima,.ad-container video,.preroll-container,' +
   '[class*="preroll"],[id*="preroll"],[class*="vast-player"],[class*="vpaid"]';
 var SKIP_BTN = '.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-ad-skip-button-container button,' +
@@ -130,11 +143,16 @@ var SKIP_BTN = '.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-butt
   '[aria-label*="kip ad"],[aria-label*="kip Ad"],[aria-label*="altar anuncio"],[aria-label*="mitir anuncio"]';
 var mutedByUs = [];
 function visibleEl(el){ var r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 && getComputedStyle(el).visibility !== 'hidden'; }
-function fastForwardAd(v){
-  if (!v || v.__lbContent) return;
+/* sure: sólo en YouTube (.ad-showing) se sabe seguro que el <video> es el anuncio. En el resto, un vídeo
+   sólo se trata como anuncio si dura poco (los anuncios duran segundos; una película o un capítulo, no). */
+var AD_MAX = 90;
+function fastForwardAd(v, sure){
+  if (!v || v.__lbContent) return false;
+  if (!sure && !(isFinite(v.duration) && v.duration > 0 && v.duration <= AD_MAX)) return false;
   if (!v.muted) { v.muted = true; mutedByUs.push(v); }
   try { v.playbackRate = 16; } catch(e){}
   if (isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 0.3) { try { v.currentTime = v.duration - 0.1; } catch(e){} bump(); }
+  return true;
 }
 function skipAds(){
   if (!document.getElementsByTagName('video').length) return;
@@ -142,18 +160,21 @@ function skipAds(){
   /* reproductores en estado "anuncio": el propio vídeo del reproductor es el anuncio */
   list = document.querySelectorAll(AD_STATE);
   for (i = 0; i < list.length; i++) {
+    var yt = /(^|\s)(ad-showing|ad-interrupting)(\s|$)/.test(list[i].className);
     var vs = list[i].querySelectorAll('video');
-    for (j = 0; j < vs.length; j++) fastForwardAd(vs[j]);
-    acted = true;
+    for (j = 0; j < vs.length; j++) if (fastForwardAd(vs[j], yt)) acted = true;
   }
   /* capas de anuncio (IMA, VAST...) con su propio <video> encima del contenido */
   list = document.querySelectorAll(AD_LAYER);
   for (i = 0; i < list.length; i++) {
     var el = list[i];
-    if (el.tagName === 'VIDEO') { if (visibleEl(el)) { fastForwardAd(el); acted = true; } continue; }
+    /* una capa de anuncio tiene su propio <video> encima del contenido: si en la página hay otro vídeo
+       (el contenido), el de la capa es el anuncio; si es el único, podría ser el contenido mal detectado */
+    var total = document.getElementsByTagName('video').length;
+    if (el.tagName === 'VIDEO') { if (visibleEl(el) && fastForwardAd(el, total > 1)) acted = true; continue; }
     if (!visibleEl(el)) continue;
     var av = el.querySelectorAll('video');
-    for (j = 0; j < av.length; j++) { fastForwardAd(av[j]); acted = true; }
+    for (j = 0; j < av.length; j++) if (fastForwardAd(av[j], total > av.length)) acted = true;
   }
   /* botones "Saltar anuncio" visibles en cualquier sitio */
   list = document.querySelectorAll(SKIP_BTN);
@@ -170,7 +191,7 @@ setInterval(skipAds, 300);
 /* 3. Limpieza del DOM */
 var CSS = 'ins.adsbygoogle,[id^="google_ads"],[id^="div-gpt-ad"],[class*="adsbygoogle"],' +
   '[id^="taboola"],[class^="taboola"],.OUTBRAIN,[data-ad],[data-ad-slot],[data-adunit],' +
-  'iframe[src*="ads"],iframe[id*="google_ads"],.ad-banner,.ad-container,.ad-wrapper,.ad-slot,' +
+  'iframe[id*="google_ads"],.ad-banner,.ad-container,.ad-wrapper,.ad-slot,' +
   '.advertisement,#ad-banner,.sponsored,.popup-overlay,.modal-ad,[class*="popunder"],' +
   /* anuncios incrustados habituales (GPT de Google, AMP, Taboola/Outbrain, bloques marcados como publicidad) */
   'amp-ad,amp-embed,amp-sticky-ad,[id*="google_ads_iframe"],[data-google-query-id],iframe[src*="doubleclick.net"],' +
@@ -206,7 +227,7 @@ function clean(node){
 var pending = [];
 var scheduled = false;
 function flush(){ scheduled = false; var p = pending; pending = []; for (var i = 0; i < p.length; i++) clean(p[i]); }
-new MutationObserver(function(muts){
+if (TV) new MutationObserver(function(muts){
   for (var i = 0; i < muts.length; i++) {
     var a = muts[i].addedNodes;
     for (var j = 0; j < a.length; j++) {
@@ -222,6 +243,10 @@ new MutationObserver(function(muts){
 function isTrap(el){
   if (!el || el === document.body || el === document.documentElement) return false;
   if (el.tagName === 'VIDEO' || (el.closest && el.closest('video'))) return false;
+  /* capas de control de un reproductor (el clic en play cae en ellas): tienen el vídeo al lado o dentro */
+  if (el.querySelector('video,iframe')) return false;
+  var par = el.parentElement;
+  if (par && par !== document.body && par !== document.documentElement && par.querySelector('video')) return false;
   var cs = getComputedStyle(el);
   if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
   var r = el.getBoundingClientRect();

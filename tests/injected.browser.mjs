@@ -283,6 +283,38 @@ check('universal: el vídeo del contenido no se toca', !im.contentMuted);
 check('universal: "Saltar intro" (no es anuncio) no se pulsa', !im.intro);
 check('universal: petición VAST de cualquier dominio bloqueada', im.vast === 'blocked');
 
+// Reproductor esperando un anuncio que hemos bloqueado: el CONTENIDO no se puede adelantar ni silenciar
+const wt = await ctx.newPage();
+wt.on('dialog', (d) => d.dismiss());
+await wt.route(base + '/wait', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><body>
+  <div class="video-js vjs-ad-loading" style="position:relative;width:640px;height:360px"><video id="film" style="width:640px;height:360px"></video>
+    <div id="playlayer" style="position:absolute;inset:0;z-index:200" onclick="window.__playClick=1"></div></div>
+  <div class="video-js vjs-ad-playing"><video id="longc" style="width:320px;height:180px"></video></div>
+  <div class="video-js vjs-ad-playing"><video id="shortad" style="width:320px;height:180px"></video></div>
+  <script>
+    function fake(id, dur){ var v = document.getElementById(id), t = 5;
+      Object.defineProperty(v, 'duration', { get: function(){ return dur; } });
+      Object.defineProperty(v, 'currentTime', { get: function(){ return t; }, set: function(x){ t = x; } }); }
+    fake('film', 5400); fake('longc', 2700); fake('shortad', 15);
+    window.__xhr = null; var t0 = Date.now();
+    var x = new XMLHttpRequest(); x.open('GET', 'https://imasdk.googleapis.com/js/sdkloader/ima3.js');
+    x.onerror = function(){ window.__xhr = { state: x.readyState, ms: Date.now() - t0 }; }; x.send();
+  </script></body>` }));
+await wt.setViewportSize({ width: 800, height: 600 });
+await wt.addInitScript(SCRIPT);
+await wt.goto(base + '/wait');
+await wt.waitForTimeout(800);
+await wt.mouse.click(300, 150);
+const w = await wt.evaluate(() => { const g = (id) => document.getElementById(id);
+  return { film: g('film').currentTime, filmMuted: g('film').muted, filmRate: g('film').playbackRate,
+    longc: g('longc').currentTime, ad: g('shortad').currentTime, adMuted: g('shortad').muted,
+    play: !!window.__playClick, layer: !!g('playlayer'), xhr: window.__xhr }; });
+check('esperando anuncio (vjs-ad-loading): la película no se adelanta ni se silencia', w.film === 5 && !w.filmMuted && w.filmRate === 1);
+check('estado "anuncio" con un vídeo largo: no se toca (es contenido)', w.longc === 5);
+check('estado "anuncio" con un vídeo corto: se salta', w.ad > 14 && w.adMuted);
+check('la capa de play del reproductor recibe el clic (no es una trampa)', w.play && w.layer);
+check('XHR bloqueado falla enseguida con error (el reproductor no se queda esperando)', !!w.xhr && w.xhr.state === 4 && w.xhr.ms < 200);
+
 // Webs con Trusted Types (como YouTube): innerHTML lanza excepción; el cursor debe funcionar igual
 const tt = await ctx.newPage();
 await tt.setViewportSize({ width: 800, height: 600 });
