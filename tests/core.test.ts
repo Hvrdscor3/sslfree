@@ -17,6 +17,27 @@ test('bloquea dominios de anuncios y sus subdominios', () => {
   assert.ok(!isBlockedUrl('https://www.google.com/'));
 });
 
+test('anuncios de vídeo por la forma de la URL, en cualquier dominio', () => {
+  assert.ok(isBlockedUrl('https://cdn.player.example/ads/vast.xml?cb=1'));
+  assert.ok(isBlockedUrl('https://x.example/serve?vast=https%3A%2F%2Fa'));
+  assert.ok(isBlockedUrl('https://pubads.example/gampad/ads?iu=/1/x'));
+  assert.ok(!isBlockedUrl('https://example.com/vastness/canvas.html'));
+  assert.ok(!isBlockedUrl('https://example.com/blog/advertising-history'));
+});
+
+test('redes de anuncios de webs para adultos (y el script de ExoClick aunque cambie de dominio)', () => {
+  for (const u of ['https://s.magsrv.com/splash.php', 'https://a.exdynsrv.com/x', 'https://ads.trafficjunky.net/ads',
+    'https://cdn.tsyndicate.com/sdk/v1/p.js', 'https://poweredby.jads.co/js/jads.js', 'https://www.mybid.io/x',
+    'https://go.mavrtracktor.com/?x', 'https://a.realsrv.com/ad-provider.js']) assert.ok(isBlockedUrl(u), u);
+  assert.ok(isBlockedUrl('https://dominio-nuevo-rotado.example/ad-provider.js'));
+  assert.ok(isBlockedUrl('https://web.example/js/popunder2.js'));
+  assert.ok(!isBlockedUrl('https://web.example/js/provider.js'));
+  // anuncios propios de la web (zonas de anuncio y pop-unders servidos desde su dominio)
+  assert.ok(isBlockedUrl('https://www.web.example/dot/dot.php?v=2&adZones%5B%5D=desktop.foot'));
+  assert.ok(isBlockedUrl('https://www.web.example/dot/pop4.php'));
+  assert.ok(!isBlockedUrl('https://www.web.example/video.php?zone=es'));
+});
+
 test('esquemas que abren otras apps', () => {
   assert.ok(isDisallowedScheme('intent://scan#Intent;end'));
   assert.ok(isDisallowedScheme(' market://details?id=x'));
