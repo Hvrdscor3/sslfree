@@ -1,0 +1,17 @@
+:root { --bg: #ffffff; --fg: #16181d; --muted: #5f6672; --card: #f1f3f6; --accent: #2563eb; --ok: #15803d; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15171c; --fg: #f3f4f6; --muted: #9aa0aa; --card: #23262e; --accent: #3b82f6; --ok: #4ade80; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; width: 280px; padding: 14px; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.note { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+.row small { color: var(--muted); }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--card); cursor: pointer; }
+.row span { display: flex; flex-direction: column; min-width: 0; }
+.row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+input[type=checkbox] { width: 36px; height: 20px; accent-color: var(--accent); cursor: pointer; }
+button { width: 100%; margin-top: 10px; padding: 9px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+button:disabled { opacity: .4; cursor: default; }
+#hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; }

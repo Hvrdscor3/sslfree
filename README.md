@@ -26,6 +26,8 @@ src/components/          barra de herramientas y portada con favoritos
 src/core/adblock.ts      lista de dominios y comprobación de URLs
 src/core/injected.ts     script que se inyecta en cada página (pop-ups, anuncios, vídeo)
 src/core/url.ts          convierte el texto escrito en URL o búsqueda
+extension/               extensión de Chrome con el mismo motor
+scripts/                 genera los ficheros de la extensión
 tests/                   pruebas
 ```
 
@@ -50,11 +52,30 @@ Necesitas el **Vega SDK** instalado en tu ordenador (Amazon Developer → Vega O
    ```
    Los nombres exactos de los comandos pueden variar entre versiones del SDK; usa `vega --help` si alguno no existe.
 
+## Extensión para Chrome (Ad Block Ligero)
+
+La carpeta `extension/` es una extensión de Chrome (Manifest V3) con el mismo motor que el navegador:
+
+- **Red**: los mismos dominios de `src/core/adblock.ts` se bloquean con `declarativeNetRequest`, así que el navegador corta las peticiones antes de que salgan, también las del HTML inicial.
+- **Página**: el mismo script de `src/core/injected.ts` se ejecuta en cada página y marco al empezar a cargar: anula `window.open`, `target="_blank"`, `alert/confirm/prompt` y los avisos al salir, oculta contenedores de anuncios y quita las capas transparentes que roban clics.
+- **Pop-unders**: si una página consigue abrir una pestaña hacia un dominio de anuncios, se cierra al instante.
+- **Icono**: muestra cuántas cosas se han bloqueado en la pestaña. Al pulsarlo puedes desactivar el bloqueo en el sitio actual o poner el vídeo principal a pantalla completa.
+
+Instalar:
+
+1. Abre `chrome://extensions` y activa **Modo de desarrollador** (arriba a la derecha).
+2. Pulsa **Cargar descomprimida** y elige la carpeta `extension/`.
+
+Si cambias la lista de dominios o el script, regenera los ficheros con `npm run build:extension` y pulsa ↻ en la tarjeta de la extensión.
+
+En escritorio el bloqueo de pop-ups es estricto: los inicios de sesión que abren ventana (por ejemplo "Acceder con Google") y los avisos de "cambios sin guardar" no funcionan. Desactiva la extensión en ese sitio desde su icono.
+
 ## Pruebas
 
 ```bash
 npm test               # lógica de URLs y lista de bloqueo (Node 22+)
 npm run test:browser   # prueba el script de bloqueo en Chromium real (necesita Playwright)
+npm run test:extension # carga la extensión en Chromium y prueba el bloqueo completo
 ```
 
 ## Limitaciones

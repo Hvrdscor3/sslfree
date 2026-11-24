@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ad Block Ligero</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/32.png" alt="" width="20" height="20">
+    <h1>Ad Block Ligero</h1>
+  </header>
+  <p class="note">El número del icono es lo bloqueado en esta pestaña.</p>
+  <label class="row" id="siteRow">
+    <span><b id="site">—</b><small id="state">Activado</small></span>
+    <input type="checkbox" id="toggle" role="switch" checked>
+  </label>
+  <button id="video">▣ Vídeo a pantalla completa</button>
+  <p id="hint" hidden>Recarga la página para aplicar el cambio.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

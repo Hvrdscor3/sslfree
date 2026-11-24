@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Ad Block Ligero",
+  "version": "1.0.0",
+  "description": "Bloquea anuncios, pop-ups y pop-unders con el mismo motor del Navegador Ligero de Fire TV.",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "declarativeNetRequest",
+    "scripting",
+    "storage",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ads",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "action": {
+    "default_title": "Ad Block Ligero",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}

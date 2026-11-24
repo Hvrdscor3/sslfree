@@ -2,3 +2,5 @@ node_modules/
 build/
 *.vpkg
 .DS_Store
+*.zip
+extension/_metadata/

@@ -10,7 +10,9 @@
     "build:release": "vega build --build-type Release",
     "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
     "test:browser": "node tests/injected.browser.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:extension": "node --experimental-strip-types --no-warnings scripts/build-extension.ts",
+    "test:extension": "node tests/extension.browser.mjs"
   },
   "dependencies": {
     "@amazon-devices/react-native-kepler": "~4.0.2",

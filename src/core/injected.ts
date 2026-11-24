@@ -19,7 +19,10 @@ ${JSON.stringify(hosts)}.forEach(function(h){ HOSTS[h] = 1; });
 var blockedCount = 0, statT = 0;
 function bump(){ blockedCount++; if (!statT) { statT = setTimeout(function(){ statT = 0; post("stats", blockedCount); }, 1500); } }
 function post(type, data){
-  try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:type, data:data})); } catch(e){}
+  var msg = JSON.stringify({type:type, data:data});
+  try { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); return; } } catch(e){}
+  /* Fuera del WebView (extensión de Chrome): evento que recoge el script de contenido aislado */
+  try { window.dispatchEvent(new CustomEvent('__lb_msg', { detail: msg })); } catch(e){}
 }
 function hostOf(u){
   if (!u) return '';
