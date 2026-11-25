@@ -2,6 +2,8 @@ schema-version = 1
 
 [package]
 title = "Navegador Ligero"
+# Icono del lanzador: assets/image/app_icon.png (512x512 PNG, < 1 MB)
+icon = "@image/app_icon.png"
 version = "0.1.0"
 # Floor so local builds pass vpt validate; pass an increasing --build-number for every Appstore upload.
 build-number = 1

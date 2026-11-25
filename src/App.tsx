@@ -8,6 +8,7 @@ import StartPage from './components/StartPage';
 import { AD_PATH_RE, hostsForInjection, isBlockedUrl, isDisallowedScheme } from './core/adblock';
 import { buildInjectedScript, FULLSCREEN_VIDEO_JS, RELOAD_JS } from './core/injected';
 import { displayUrl, normalizeInput } from './core/url';
+import { BAR_H, C } from './theme';
 
 // Un móvil recibe páginas más ligeras (menos JS, vídeos adaptados): mejor rendimiento en el Firestick.
 const UA_MOBILE =
@@ -38,6 +39,20 @@ export default function App() {
   const pageBlocked = useRef(0);
   const pageFullscreen = useRef(false);
   const [focusBar, setFocusBar] = useState(0); // cada incremento lleva el foco del mando a la barra de dirección
+  const [editBar, setEditBar] = useState(0);   // cada incremento abre el teclado de la barra (buscador de la portada)
+  // Total de la sesión (para la portada): se suma lo nuevo de cada página
+  const [sessionBlocked, setSessionBlocked] = useState(0);
+  const lastStats = useRef(0);
+
+  // Barra de progreso: un tramo que recorre la pantalla mientras carga
+  const prog = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!loading) { prog.stopAnimation(); return; }
+    prog.setValue(0);
+    const anim = Animated.loop(Animated.timing(prog, { toValue: 1, duration: 1100, useNativeDriver: true }));
+    anim.start();
+    return () => anim.stop();
+  }, [loading, prog]);
 
   // Cursor virtual dibujado por encima del WebView. La página manda su posición (px CSS) con post('cur');
   // se convierte a unidades de React Native con el ancho real del WebView. Animated.Value evita re-renders.
@@ -102,6 +117,7 @@ export default function App() {
     if (isDisallowedScheme(req.url) || isBlockedUrl(req.url)) {
       pageBlocked.current += 1;
       setBlocked((b) => b + 1);
+      setSessionBlocked((b) => b + 1);
       return false;
     }
     return true;
@@ -123,7 +139,12 @@ export default function App() {
     if (msg.type === 'click') { flashClick(); return; }
     syncNav(e.nativeEvent);
     switch (msg.type) {
-      case 'stats': setBlocked(pageBlocked.current + Number(msg.data || 0)); break;
+      case 'stats': {
+        const n = Number(msg.data || 0);
+        if (n > lastStats.current) { setSessionBlocked((b) => b + n - lastStats.current); lastStats.current = n; }
+        setBlocked(pageBlocked.current + n);
+        break;
+      }
       case 'toast': showToast(String(msg.data)); break;
       case 'focusbar': setBarVisible(true); setFocusBar((n) => n + 1); break;
       case 'fullscreen':
@@ -151,7 +172,7 @@ export default function App() {
         allowsDefaultMediaControl
         injectedJavaScriptBeforeContentLoaded={INJECTED}
         onShouldStartLoadWithRequest={onShouldStart}
-        onLoadStart={(e) => { hideCursor(); setLoading(true); pageBlocked.current = 0; syncNav(e.nativeEvent); }}
+        onLoadStart={(e) => { hideCursor(); setLoading(true); pageBlocked.current = 0; lastStats.current = 0; syncNav(e.nativeEvent); }}
         onLoad={(e) => { setLoading(false); syncNav(e.nativeEvent); inject(); }}
         onMessage={onMessage}
         onError={(e) => { setLoading(false); syncNav(e.nativeEvent); showToast('No se pudo cargar la página'); }}
@@ -166,6 +187,7 @@ export default function App() {
       {barVisible && (
         <Toolbar
           url={displayUrl(current)}
+          secure={current.startsWith('https:')}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
           loading={loading}
@@ -180,10 +202,11 @@ export default function App() {
           onToggleDesktop={() => setDesktop((d) => !d)}
           onHide={() => url && setBarVisible(false)}
           focusRequest={focusBar}
+          editRequest={editBar}
         />
       )}
       <View style={styles.content} onLayout={(e: LayoutChangeEvent) => { webSize.current = { w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height }; }}>
-        {webView ?? <StartPage onOpen={open} />}
+        {webView ?? <StartPage onOpen={open} onSearch={() => setEditBar((n) => n + 1)} blocked={sessionBlocked} />}
         {webView && (
           <>
             <Animated.View pointerEvents="none" style={[styles.ring, { opacity: rOpacity, width: rw, height: rh, transform: [{ translateX: rx }, { translateY: ry }] }]} />
@@ -191,19 +214,29 @@ export default function App() {
           </>
         )}
       </View>
-      {loading && <View style={[styles.progress, { top: barVisible ? 64 : 0 }]} />}
-      {!!toast && <Text style={styles.toast}>{toast}</Text>}
+      {loading && (
+        <View pointerEvents="none" style={[styles.progress, { top: barVisible ? BAR_H - 2 : 0 }]}>
+          <Animated.View style={[styles.progressRun, { transform: [{ translateX: prog.interpolate({ inputRange: [0, 1], outputRange: [-480, 1920] }) }] }]} />
+        </View>
+      )}
+      {!!toast && (
+        <View pointerEvents="none" style={styles.toastWrap}>
+          <Text style={styles.toast}>{toast}</Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0e0f13' },
+  root: { flex: 1, backgroundColor: C.bg },
   content: { flex: 1 },
   web: { flex: 1, backgroundColor: '#000' },
   // cursor.png (44x60 px) tiene la punta en (2,2): se desplaza 1 unidad para que la punta caiga en la posición exacta
   cursor: { position: 'absolute', left: -1, top: -1, width: 22, height: 30 },
   ring: { position: 'absolute', left: 0, top: 0, borderWidth: 3, borderColor: '#3b82f6', borderRadius: 8, backgroundColor: 'rgba(59,130,246,0.12)' },
-  progress: { position: 'absolute', left: 0, right: 0, height: 3, backgroundColor: '#3b82f6' },
-  toast: { position: 'absolute', bottom: 48, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.85)', color: '#fff', fontSize: 20 },
+  progress: { position: 'absolute', left: 0, right: 0, height: 3, overflow: 'hidden', backgroundColor: 'rgba(59,130,246,0.2)' },
+  progressRun: { width: 480, height: 3, backgroundColor: C.accent },
+  toastWrap: { position: 'absolute', left: 0, right: 0, bottom: 56, alignItems: 'center' },
+  toast: { paddingHorizontal: 28, paddingVertical: 14, borderRadius: 28, backgroundColor: 'rgba(17,20,26,0.94)', borderWidth: 1, borderColor: C.line, color: C.text, fontSize: 21, overflow: 'hidden' },
 });

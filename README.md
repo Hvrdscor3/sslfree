@@ -7,6 +7,13 @@ Un navegador mínimo para Firestick con Vega OS, pensado para ir rápido en el d
 - **Vídeo**: reproducción automática permitida, controles multimedia del sistema activados y botón **▣ Vídeo** que pone a pantalla completa el vídeo principal. En pantalla completa: OK = play/pausa, ←/→ = ±10 s, ↑/↓ = volumen.
 - **Rendimiento**: un único WebView, sin pestañas, cookies de terceros desactivadas, agente de usuario móvil por defecto (las webs envían páginas más ligeras; botón **Móvil/PC** para cambiar), y un script de bloqueo pequeño que procesa los cambios del DOM por lotes.
 
+## Interfaz e icono
+
+- Portada con buscador grande, favoritos con su color, reloj, atajos del mando y lo bloqueado en la sesión.
+- Barra con iconos dibujados (no dependen de las fuentes de la TV), dirección con el dominio resaltado y candado en HTTPS, contador de bloqueos y barra de carga animada.
+- Icono de la app: `assets/image/app_icon.png` (512×512), declarado en `manifest.toml` con `icon = "@image/app_icon.png"`. También hay un banner de 1280×720 (`assets/image/app_banner.png`), el tamaño que pide la tienda de Fire TV.
+- Los iconos se regeneran con `NODE_PATH=$(npm root -g) node scripts/make-icons.cjs`.
+
 ## Uso con el mando
 
 | Tecla | Acción |

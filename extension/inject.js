@@ -75,18 +75,21 @@ XMLHttpRequest.prototype.send = function(){
 };
 if (navigator.sendBeacon) { var sb = navigator.sendBeacon.bind(navigator); navigator.sendBeacon = function(u, d){ return blocked(u) ? true : sb(u, d); }; }
 
+/* Un <script>/<iframe>/<img> bloqueado avisa con 'error' al momento, como si fallara la red: los reproductores
+   que esperan al SDK de anuncios (onload/onerror) pasan directamente al vídeo en vez de esperar su tiempo límite. */
+function failSoon(el){ setTimeout(function(){ try { el.dispatchEvent(new Event('error')); } catch(e){} }, 0); }
 function guardSrc(proto, attr){
   var d = proto && Object.getOwnPropertyDescriptor(proto, attr);
   if (!d || !d.set) return;
   Object.defineProperty(proto, attr, { configurable: true, enumerable: d.enumerable, get: d.get,
-    set: function(v){ if (blocked(v)) { return; } d.set.call(this, v); } });
+    set: function(v){ if (blocked(v)) { failSoon(this); return; } d.set.call(this, v); } });
 }
 guardSrc(window.HTMLScriptElement && HTMLScriptElement.prototype, 'src');
 guardSrc(window.HTMLIFrameElement && HTMLIFrameElement.prototype, 'src');
 guardSrc(window.HTMLImageElement && HTMLImageElement.prototype, 'src');
 var osa = Element.prototype.setAttribute;
 Element.prototype.setAttribute = function(n, v){
-  if ((n === 'src' || n === 'href') && /^(SCRIPT|IFRAME|IMG|LINK)$/.test(this.tagName) && blocked(v)) return;
+  if ((n === 'src' || n === 'href') && /^(SCRIPT|IFRAME|IMG|LINK)$/.test(this.tagName) && blocked(v)) { failSoon(this); return; }
   return osa.call(this, n, v);
 };
 }
@@ -217,7 +220,7 @@ function addStyle(){
 function clean(node){
   if (!node || node.nodeType !== 1) return;
   var t = node.tagName;
-  if ((t === 'SCRIPT' || t === 'IFRAME' || t === 'IMG') && blocked(node.getAttribute('src'))) { node.remove(); return; }
+  if ((t === 'SCRIPT' || t === 'IFRAME' || t === 'IMG') && blocked(node.getAttribute('src'))) { node.remove(); failSoon(node); return; }
   if (t === 'A' && node.getAttribute('target') === '_blank') node.setAttribute('target', '_self');
   if (node.querySelectorAll && node.firstElementChild) {
     var list = node.querySelectorAll('script[src],iframe[src],img[src],a[target="_blank"]');

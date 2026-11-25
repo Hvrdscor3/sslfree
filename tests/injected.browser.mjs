@@ -296,6 +296,9 @@ await wt.route(base + '/wait', (route) => route.fulfill({ contentType: 'text/htm
       Object.defineProperty(v, 'duration', { get: function(){ return dur; } });
       Object.defineProperty(v, 'currentTime', { get: function(){ return t; }, set: function(x){ t = x; } }); }
     fake('film', 5400); fake('longc', 2700); fake('shortad', 15);
+    window.__sdk = null; var s0 = Date.now();
+    var sdk = document.createElement('script'); sdk.onerror = function(){ window.__sdk = Date.now() - s0; };
+    sdk.src = 'https://imasdk.googleapis.com/js/sdkloader/ima3.js'; document.head.appendChild(sdk);
     window.__xhr = null; var t0 = Date.now();
     var x = new XMLHttpRequest(); x.open('GET', 'https://imasdk.googleapis.com/js/sdkloader/ima3.js');
     x.onerror = function(){ window.__xhr = { state: x.readyState, ms: Date.now() - t0 }; }; x.send();
@@ -308,11 +311,12 @@ await wt.mouse.click(300, 150);
 const w = await wt.evaluate(() => { const g = (id) => document.getElementById(id);
   return { film: g('film').currentTime, filmMuted: g('film').muted, filmRate: g('film').playbackRate,
     longc: g('longc').currentTime, ad: g('shortad').currentTime, adMuted: g('shortad').muted,
-    play: !!window.__playClick, layer: !!g('playlayer'), xhr: window.__xhr }; });
+    play: !!window.__playClick, layer: !!g('playlayer'), xhr: window.__xhr, sdk: window.__sdk }; });
 check('esperando anuncio (vjs-ad-loading): la película no se adelanta ni se silencia', w.film === 5 && !w.filmMuted && w.filmRate === 1);
 check('estado "anuncio" con un vídeo largo: no se toca (es contenido)', w.longc === 5);
 check('estado "anuncio" con un vídeo corto: se salta', w.ad > 14 && w.adMuted);
 check('la capa de play del reproductor recibe el clic (no es una trampa)', w.play && w.layer);
+check('<script> del SDK de anuncios bloqueado avisa con error al momento', w.sdk !== null && w.sdk < 200);
 check('XHR bloqueado falla enseguida con error (el reproductor no se queda esperando)', !!w.xhr && w.xhr.state === 4 && w.xhr.ms < 200);
 
 // Webs con Trusted Types (como YouTube): innerHTML lanza excepción; el cursor debe funcionar igual
