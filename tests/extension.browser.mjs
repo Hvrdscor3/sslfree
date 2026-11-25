@@ -68,9 +68,12 @@ check(`todas las regexFilter son válidas para Chrome ${bad.join(', ')}`, bad.le
 await sw.evaluate(() => { globalThis.__deltas = 0;
   chrome.runtime.onMessage.addListener((m) => { if (m && m.type === 'blocked') globalThis.__deltas += m.delta; }); });
 const page = await ctx.newPage();
+const pageErrors = [];
+page.on('pageerror', (e) => pageErrors.push(e.message));
 await page.goto(`http://site.test:${port}/`);
 await page.waitForTimeout(500);
 
+check(`sin errores del script en la página ${pageErrors.join(' | ')}`, pageErrors.length === 0);
 check('script de anuncio no se ejecuta', !(await page.evaluate(() => window.__adRan)));
 check('ninguna petición llega a dominios de anuncios',
   !hits.some((h) => /doubleclick|criteo|taboola|popads/.test(h)));
@@ -121,7 +124,7 @@ const popup = await ctx.newPage();
 const id = sw.url().split('/')[2];
 await popup.goto(`chrome-extension://${id}/popup.html`);
 await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'setSite', site: 'site.test', enabled: false }));
-await popup.waitForTimeout(800);
+await popup.waitForTimeout(1500);
 check('popup informa sitio desactivado',
   (await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'getSite', site: 'site.test' }))).enabled === false);
 await page2.goto(`http://site.test:${port}/`);
@@ -130,7 +133,7 @@ check('sitio desactivado: el anuncio se carga', await page2.evaluate(() => windo
 check('sitio desactivado: sin script inyectado', await page2.evaluate(() => !window.__lb));
 
 await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'setSite', site: 'site.test', enabled: true }));
-await popup.waitForTimeout(800);
+await popup.waitForTimeout(1500);
 await page2.reload(); await page2.waitForTimeout(500);
 check('reactivado: anuncio bloqueado otra vez', await page2.evaluate(() => !window.__adRan && !!window.__lb));
 

@@ -31,6 +31,9 @@ function blocked(u){
   if (AD_PATH && u && AD_PATH.test(String(u))) { bump(); return true; }
   return false;
 }
+/* Un <script>/<iframe>/<img> bloqueado avisa con 'error' al momento, como si fallara la red: los reproductores
+   que esperan al SDK de anuncios (onload/onerror) pasan directamente al vídeo en vez de esperar su tiempo límite. */
+var failSoon = function(el){ setTimeout(function(){ try { el.dispatchEvent(new Event('error')); } catch(e){} }, 0); };
 var lb = window.__lb = { blocked: function(){ return blockedCount; } };
 
 /* 1. Pop-ups */
@@ -75,9 +78,6 @@ XMLHttpRequest.prototype.send = function(){
 };
 if (navigator.sendBeacon) { var sb = navigator.sendBeacon.bind(navigator); navigator.sendBeacon = function(u, d){ return blocked(u) ? true : sb(u, d); }; }
 
-/* Un <script>/<iframe>/<img> bloqueado avisa con 'error' al momento, como si fallara la red: los reproductores
-   que esperan al SDK de anuncios (onload/onerror) pasan directamente al vídeo en vez de esperar su tiempo límite. */
-function failSoon(el){ setTimeout(function(){ try { el.dispatchEvent(new Event('error')); } catch(e){} }, 0); }
 function guardSrc(proto, attr){
   var d = proto && Object.getOwnPropertyDescriptor(proto, attr);
   if (!d || !d.set) return;
