@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, ImageSourcePropType, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { BAR_H, C, ICON, LOGO } from '../theme';
+import { BAR_H, C, ICON } from '../theme';
 
 type Props = {
   url: string;
@@ -20,11 +20,10 @@ type Props = {
   onHide: () => void;
   /** al cambiar, el foco del mando va a la barra de dirección */
   focusRequest?: number;
-  /** al cambiar, se abre directamente el teclado para escribir (desde la portada) */
-  editRequest?: number;
 };
 
-function Btn({ icon, label, onPress, disabled }: { icon: ImageSourcePropType; label?: string; onPress: () => void; disabled?: boolean }) {
+/** Botón redondo; al enfocarlo enseña su nombre debajo (en la TV no hay "pasar el ratón"). */
+function Btn({ icon, name, label, onPress, disabled }: { icon: ImageSourcePropType; name: string; label?: string; onPress: () => void; disabled?: boolean }) {
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
@@ -36,6 +35,7 @@ function Btn({ icon, label, onPress, disabled }: { icon: ImageSourcePropType; la
     >
       <Image source={icon} style={styles.icon} />
       {label ? <Text style={styles.btnLabel}>{label}</Text> : null}
+      {focused && !label ? <View style={styles.tipWrap}><Text numberOfLines={1} style={styles.tip}>{name}</Text></View> : null}
     </Pressable>
   );
 }
@@ -60,19 +60,15 @@ export default function Toolbar(p: Props) {
   const stopEditing = () => { setEditing(false); focusUrl(); };
   // La página pide ir a la barra (↑ arriba del todo o botón ⏪): el foco pasa a la dirección
   useEffect(() => { if (p.focusRequest) focusUrl(); }, [p.focusRequest]);
-  useEffect(() => { if (p.editRequest) { setText(''); setEditing(true); } }, [p.editRequest]);
 
   const [host, rest] = splitUrl(p.url);
 
   return (
     <View style={styles.bar}>
-      <Image source={LOGO} style={styles.logo} />
-      <View style={styles.group}>
-        <Btn icon={ICON.back} onPress={p.onBack} disabled={!p.canGoBack} />
-        <Btn icon={ICON.forward} onPress={p.onForward} disabled={!p.canGoForward} />
-        <Btn icon={p.loading ? ICON.stop : ICON.reload} onPress={p.onReload} />
-        <Btn icon={ICON.home} onPress={p.onHome} />
-      </View>
+      <Btn icon={ICON.back} name="Atrás" onPress={p.onBack} disabled={!p.canGoBack} />
+      <Btn icon={ICON.forward} name="Adelante" onPress={p.onForward} disabled={!p.canGoForward} />
+      <Btn icon={p.loading ? ICON.stop : ICON.reload} name={p.loading ? 'Parar' : 'Recargar'} onPress={p.onReload} />
+      <Btn icon={ICON.home} name="Inicio" onPress={p.onHome} />
       {editing ? (
         <View style={[styles.address, styles.addressFocused]}>
           <Image source={ICON.search} style={styles.addrIcon} />
@@ -80,7 +76,7 @@ export default function Toolbar(p: Props) {
             style={styles.input}
             value={text}
             autoFocus
-            placeholder="Busca en DuckDuckGo o escribe una dirección"
+            placeholder="Busca o escribe una dirección"
             placeholderTextColor={C.dim}
             autoCapitalize="none"
             autoCorrect={false}
@@ -99,54 +95,42 @@ export default function Toolbar(p: Props) {
           style={[styles.address, urlFocused && styles.addressFocused]}
           onFocus={() => setUrlFocused(true)}
           onBlur={() => setUrlFocused(false)}
-          onPress={() => { setText(p.url); setEditing(true); }}
+          onPress={() => { setText(''); setEditing(true); }}
         >
-          <Image source={p.url ? (p.secure ? ICON.lock : ICON.globe) : ICON.search} style={[styles.addrIcon, p.url && p.secure ? styles.addrIconOk : null]} />
+          <Image source={p.secure ? ICON.lock : ICON.globe} style={styles.addrIcon} />
           <Text numberOfLines={1} style={styles.addrText}>
-            {p.url ? (
-              <>
-                <Text style={styles.host}>{host}</Text>
-                <Text style={styles.path}>{rest}</Text>
-              </>
-            ) : (
-              <Text style={styles.placeholder}>Busca o escribe una dirección</Text>
-            )}
+            <Text style={styles.host}>{host}</Text>
+            <Text style={styles.path}>{rest}</Text>
           </Text>
+          <Image source={ICON.shield} style={styles.shieldIcon} />
+          <Text style={styles.shieldText}>{p.blocked}</Text>
         </Pressable>
       )}
-      <View style={styles.shield}>
-        <Image source={ICON.shield} style={styles.shieldIcon} />
-        <Text style={styles.shieldText}>{p.blocked}</Text>
-      </View>
-      <View style={styles.group}>
-        <Btn icon={ICON.video} label="Vídeo" onPress={p.onVideo} />
-        <Btn icon={p.desktop ? ICON.desktop : ICON.mobile} label={p.desktop ? 'PC' : 'Móvil'} onPress={p.onToggleDesktop} />
-        <Btn icon={ICON.hide} onPress={p.onHide} />
-      </View>
+      <Btn icon={ICON.video} name="Vídeo" label="Vídeo" onPress={p.onVideo} />
+      <Btn icon={p.desktop ? ICON.desktop : ICON.mobile} name={p.desktop ? 'Web de PC' : 'Web de móvil'} onPress={p.onToggleDesktop} />
+      <Btn icon={ICON.hide} name="Ocultar barra" onPress={p.onHide} />
     </View>
   );
 }
 
+// Medidas en dp (pantalla de 960x540)
 const styles = StyleSheet.create({
-  bar: { height: BAR_H, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, backgroundColor: C.bar, borderBottomWidth: 1, borderBottomColor: C.line },
-  logo: { width: 38, height: 38, marginRight: 14 },
-  group: { flexDirection: 'row', alignItems: 'center' },
-  btn: { height: 50, minWidth: 50, paddingHorizontal: 13, marginHorizontal: 3, borderRadius: 25, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent', borderWidth: 2, borderColor: 'transparent' },
-  btnWide: { paddingHorizontal: 18, backgroundColor: C.surface },
-  btnFocused: { backgroundColor: C.accent, borderColor: '#93c5fd', transform: [{ scale: 1.12 }] },
-  btnDisabled: { opacity: 0.3 },
-  icon: { width: 24, height: 24 },
-  btnLabel: { color: C.text, fontSize: 18, fontWeight: '600', marginLeft: 8 },
-  address: { flex: 1, height: 52, marginHorizontal: 14, paddingHorizontal: 18, borderRadius: 26, flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderWidth: 2, borderColor: 'transparent' },
+  bar: { height: BAR_H, zIndex: 10, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, backgroundColor: C.bar },
+  btn: { height: 34, minWidth: 34, marginHorizontal: 2, borderRadius: 17, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  btnWide: { paddingHorizontal: 13, backgroundColor: C.surface },
+  btnFocused: { backgroundColor: C.accent },
+  btnDisabled: { opacity: 0.28 },
+  icon: { width: 17, height: 17 },
+  btnLabel: { color: C.text, fontSize: 13, fontWeight: '600', marginLeft: 7 },
+  tipWrap: { position: 'absolute', top: 38, left: -43, width: 120, alignItems: 'center' },
+  tip: { color: '#fff', fontSize: 11, fontWeight: '600', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 7, backgroundColor: C.accent, overflow: 'hidden' },
+  address: { flex: 1, height: 34, marginHorizontal: 10, paddingHorizontal: 13, borderRadius: 17, flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderWidth: 2, borderColor: 'transparent' },
   addressFocused: { borderColor: C.accent, backgroundColor: C.surfaceHi },
-  addrIcon: { width: 22, height: 22, marginRight: 12, opacity: 0.7 },
-  addrIconOk: { opacity: 1 },
-  addrText: { flex: 1, fontSize: 20 },
+  addrIcon: { width: 14, height: 14, marginRight: 9, opacity: 0.75 },
+  addrText: { flex: 1, fontSize: 14 },
   host: { color: C.text, fontWeight: '600' },
   path: { color: C.dim },
-  placeholder: { color: C.dim },
-  input: { flex: 1, color: C.text, fontSize: 20, padding: 0 },
-  shield: { height: 40, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, marginRight: 10, borderRadius: 20, backgroundColor: C.okSoft },
-  shieldIcon: { width: 22, height: 22, tintColor: C.ok },
-  shieldText: { color: C.ok, fontSize: 18, fontWeight: '700', marginLeft: 8, minWidth: 18 },
+  input: { flex: 1, color: C.text, fontSize: 14, padding: 0 },
+  shieldIcon: { width: 14, height: 14, tintColor: C.ok, marginLeft: 10 },
+  shieldText: { color: C.ok, fontSize: 12, fontWeight: '700', marginLeft: 5 },
 });

@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, BackHandler, LayoutChangeEvent, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { WebView } from '@amazon-devices/webview';
 import type { ShouldStartLoadRequest, WebViewMessageEvent, WebViewMethods } from '@amazon-devices/webview/dist/types/WebViewTypes';
 
+import ErrorPage from './components/ErrorPage';
 import Toolbar from './components/Toolbar';
-import StartPage from './components/StartPage';
+import StartPage, { Recent } from './components/StartPage';
 import { AD_PATH_RE, hostsForInjection, isBlockedUrl, isDisallowedScheme } from './core/adblock';
 import { buildInjectedScript, FULLSCREEN_VIDEO_JS, RELOAD_JS } from './core/injected';
 import { displayUrl, normalizeInput } from './core/url';
@@ -17,6 +19,10 @@ const UA_DESKTOP =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
 const CURSOR_IMG = require('./assets/cursor.png');
+const TV_KEYS: Record<string, string> = {
+  select: 'Enter', enter: 'Enter', playpause: 'MediaPlayPause', left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown',
+  rewind: 'MediaRewind', skip_backward: 'MediaRewind', forward: 'MediaFastForward', skip_forward: 'MediaFastForward',
+};
 const EXIT_FULLSCREEN_JS =
   '(function(){var d=document;try{window.__lb&&window.__lb.exitVideo&&window.__lb.exitVideo()}catch(e){}' +
   'try{if(d.fullscreenElement||d.webkitFullscreenElement)(d.exitFullscreen||d.webkitExitFullscreen).call(d)}catch(e){}})(); true;';
@@ -39,10 +45,12 @@ export default function App() {
   const pageBlocked = useRef(0);
   const pageFullscreen = useRef(false);
   const [focusBar, setFocusBar] = useState(0); // cada incremento lleva el foco del mando a la barra de dirección
-  const [editBar, setEditBar] = useState(0);   // cada incremento abre el teclado de la barra (buscador de la portada)
   // Total de la sesión (para la portada): se suma lo nuevo de cada página
   const [sessionBlocked, setSessionBlocked] = useState(0);
   const lastStats = useRef(0);
+  const [recents, setRecents] = useState<Recent[]>([]); // últimos sitios abiertos (de esta sesión)
+  const [failed, setFailed] = useState('');             // dirección que no se pudo cargar
+  const toastTimer = useRef<any>(null);
 
   // Barra de progreso: un tramo que recorre la pantalla mientras carga
   const prog = useRef(new Animated.Value(0)).current;
@@ -83,7 +91,8 @@ export default function App() {
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(''), 2000);
+    clearTimeout(toastTimer.current); // un aviso nuevo no debe borrarse con el reloj del anterior
+    toastTimer.current = setTimeout(() => setToast(''), msg.length > 40 ? 4500 : 2200);
   }, []);
 
   const open = useCallback((input: string) => {
@@ -91,13 +100,25 @@ export default function App() {
     if (!next) return;
     if (isBlockedUrl(next)) { showToast('Dirección bloqueada (anuncios)'); return; }
     if (next === url) { web.current?.injectJavaScript(RELOAD_JS); return; }
+    setFailed('');
+    const host = displayUrl(next).split('/')[0];
+    setRecents((r) => [{ url: next, host }, ...r.filter((x) => x.host !== host)].slice(0, 6));
     setUrl(next);
     setCurrent(next);
   }, [url, showToast]);
 
   const goHome = useCallback(() => {
+    setFailed(''); setLoading(false); hideCursor(); setBlocked(0);
     setUrl(''); setCurrent(''); setCanGoBack(false); setCanGoForward(false); setBarVisible(true);
-  }, []);
+  }, [hideCursor]);
+
+  // Pantalla completa abierta desde la barra: al ocultarse la barra el foco no está en la página y las teclas no le llegan.
+  // Se las pasa la app (si también le llegan por su cuenta, la página descarta la repetida).
+  useTVEventHandler((ev: { eventType: string; eventKeyAction?: number }) => {
+    if (!pageFullscreen.current || ev.eventKeyAction === 1) return;
+    const key = TV_KEYS[ev.eventType];
+    if (key) web.current?.injectJavaScript(`window.__lb&&window.__lb.fsKey&&window.__lb.fsKey('${key}'); true;`);
+  });
 
   // Botón "Atrás" del mando
   useEffect(() => {
@@ -141,7 +162,8 @@ export default function App() {
     switch (msg.type) {
       case 'stats': {
         const n = Number(msg.data || 0);
-        if (n > lastStats.current) { setSessionBlocked((b) => b + n - lastStats.current); lastStats.current = n; }
+        const extra = n - lastStats.current; // fuera del setState: se ejecuta después y la referencia ya habría cambiado
+        if (extra > 0) { lastStats.current = n; setSessionBlocked((b) => b + extra); }
         setBlocked(pageBlocked.current + n);
         break;
       }
@@ -172,10 +194,18 @@ export default function App() {
         allowsDefaultMediaControl
         injectedJavaScriptBeforeContentLoaded={INJECTED}
         onShouldStartLoadWithRequest={onShouldStart}
-        onLoadStart={(e) => { hideCursor(); setLoading(true); pageBlocked.current = 0; lastStats.current = 0; syncNav(e.nativeEvent); }}
+        onLoadStart={(e) => { hideCursor(); setFailed(''); setLoading(true); pageBlocked.current = 0; lastStats.current = 0; syncNav(e.nativeEvent); }}
         onLoad={(e) => { setLoading(false); syncNav(e.nativeEvent); inject(); }}
         onMessage={onMessage}
-        onError={(e) => { setLoading(false); syncNav(e.nativeEvent); showToast('No se pudo cargar la página'); }}
+        onError={(e) => {
+          setLoading(false); syncNav(e.nativeEvent);
+          // navegación cancelada (Parar, otra dirección) o bloqueada por nosotros: no es un error de la página
+          const why = String(e.nativeEvent.description || '');
+          if (e.nativeEvent.code !== -3 && !/ABORT|BLOCKED/i.test(why)) {
+            setFailed(why || 'Error de conexión');
+            setRecents((r) => r.filter((x) => x.url !== url));
+          }
+        }}
         onCloseWindow={goHome}
       />
     );
@@ -184,7 +214,7 @@ export default function App() {
   return (
     <View style={styles.root}>
       <StatusBar hidden />
-      {barVisible && (
+      {barVisible && !!url && (
         <Toolbar
           url={displayUrl(current)}
           secure={current.startsWith('https:')}
@@ -202,21 +232,21 @@ export default function App() {
           onToggleDesktop={() => setDesktop((d) => !d)}
           onHide={() => url && setBarVisible(false)}
           focusRequest={focusBar}
-          editRequest={editBar}
         />
       )}
       <View style={styles.content} onLayout={(e: LayoutChangeEvent) => { webSize.current = { w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height }; }}>
-        {webView ?? <StartPage onOpen={open} onSearch={() => setEditBar((n) => n + 1)} blocked={sessionBlocked} />}
+        {webView ?? <StartPage onOpen={open} blocked={sessionBlocked} recents={recents} onClearRecents={() => setRecents([])} desktop={desktop} onToggleDesktop={() => setDesktop((d) => !d)} />}
         {webView && (
           <>
             <Animated.View pointerEvents="none" style={[styles.ring, { opacity: rOpacity, width: rw, height: rh, transform: [{ translateX: rx }, { translateY: ry }] }]} />
             <Animated.Image source={CURSOR_IMG} style={[styles.cursor, { opacity: cOpacity, transform: [{ translateX: cx }, { translateY: cy }] }]} />
           </>
         )}
+        {!!url && !!failed && <ErrorPage url={displayUrl(current)} detail={failed} onRetry={() => { setFailed(''); web.current?.injectJavaScript(RELOAD_JS); }} onHome={goHome} />}
       </View>
-      {loading && (
+      {loading && !!url && (
         <View pointerEvents="none" style={[styles.progress, { top: barVisible ? BAR_H - 2 : 0 }]}>
-          <Animated.View style={[styles.progressRun, { transform: [{ translateX: prog.interpolate({ inputRange: [0, 1], outputRange: [-480, 1920] }) }] }]} />
+          <Animated.View style={[styles.progressRun, { transform: [{ translateX: prog.interpolate({ inputRange: [0, 1], outputRange: [-240, 960] }) }] }]} />
         </View>
       )}
       {!!toast && (
@@ -234,9 +264,9 @@ const styles = StyleSheet.create({
   web: { flex: 1, backgroundColor: '#000' },
   // cursor.png (44x60 px) tiene la punta en (2,2): se desplaza 1 unidad para que la punta caiga en la posición exacta
   cursor: { position: 'absolute', left: -1, top: -1, width: 22, height: 30 },
-  ring: { position: 'absolute', left: 0, top: 0, borderWidth: 3, borderColor: '#3b82f6', borderRadius: 8, backgroundColor: 'rgba(59,130,246,0.12)' },
-  progress: { position: 'absolute', left: 0, right: 0, height: 3, overflow: 'hidden', backgroundColor: 'rgba(59,130,246,0.2)' },
-  progressRun: { width: 480, height: 3, backgroundColor: C.accent },
-  toastWrap: { position: 'absolute', left: 0, right: 0, bottom: 56, alignItems: 'center' },
-  toast: { paddingHorizontal: 28, paddingVertical: 14, borderRadius: 28, backgroundColor: 'rgba(17,20,26,0.94)', borderWidth: 1, borderColor: C.line, color: C.text, fontSize: 21, overflow: 'hidden' },
+  ring: { position: 'absolute', left: 0, top: 0, borderWidth: 2, borderColor: '#3b82f6', borderRadius: 8, backgroundColor: 'rgba(59,130,246,0.12)' },
+  progress: { position: 'absolute', left: 0, right: 0, height: 2, overflow: 'hidden', backgroundColor: 'rgba(59,130,246,0.2)' },
+  progressRun: { width: 240, height: 2, backgroundColor: C.accent },
+  toastWrap: { position: 'absolute', left: 0, right: 0, bottom: 34, alignItems: 'center' },
+  toast: { paddingHorizontal: 18, paddingVertical: 9, borderRadius: 18, backgroundColor: 'rgba(17,20,26,0.94)', borderWidth: 1, borderColor: C.line, color: C.text, fontSize: 13, overflow: 'hidden' },
 });

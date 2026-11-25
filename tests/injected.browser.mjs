@@ -255,6 +255,37 @@ check('pantalla completa propia: el reproductor ocupa toda la pantalla', pf1.w =
 check('pantalla completa propia: avisa a la app y oculta el cursor', pfMsgs.some((m) => m.type === 'fullscreen' && m.data === true) && lastCur1 && lastCur1.data[2] === 0);
 check('pantalla completa propia: al salir se restaura el reproductor', pf2.w === 320 && pf2.style === 'width:320px;height:180px;margin:50px' && pfMsgs.some((m) => m.type === 'fullscreen' && m.data === false));
 
+// Como la extensión: SDK de anuncios sustituido, motor dentro de los marcos propios, Video.js sin esperas y precarga
+const sb = await ctx.newPage();
+await sb.setViewportSize({ width: 800, height: 600 });
+await sb.route(base + '/stubs', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><head>
+  <script>window.googletag = { cmd: [] }; googletag.cmd.push(function(){ window.__gpt = 1; });</script>
+  <script src="https://securepubads.g.doubleclick.net/tag/js/gpt.js"></script>
+  <script src="https://imasdk.googleapis.com/js/sdkloader/ima3.js"></script>
+  <script>window.__imaReady = !!(window.google && google.ima);</script></head><body style="margin:0">
+  <div class="video-js vjs-ad-loading" style="width:640px;height:360px"><video id="v" preload="none" style="width:640px;height:360px"></video></div>
+  <iframe id="fr" srcdoc="<script>window.r = window.open('https://popads.net/x'); parent.__frOpen = r && r.closed === true;</script>"></iframe>
+  <script>
+    window.__ad = null;
+    if (window.google && google.ima) { var l = new google.ima.AdsLoader(new google.ima.AdDisplayContainer());
+      l.addEventListener(google.ima.AdErrorEvent.Type.AD_ERROR, function(e){ window.__ad = e.getError().getErrorCode(); });
+      l.requestAds(new google.ima.AdsRequest()); }
+    var s = document.createElement('script'); s.onload = function(){ window.__dyn = 'load'; }; s.onerror = function(){ window.__dyn = 'error'; };
+    s.src = 'https://imasdk.googleapis.com/js/sdkloader/ima3.js'; document.body.appendChild(s);
+    window.__trig = []; var box = document.querySelector('.video-js');
+    window.videojs = { getPlayers: function(){ return { a: { hasClass: function(c){ return box.classList.contains(c); }, trigger: function(t){ window.__trig.push(t); box.classList.remove('vjs-ad-loading'); }, preload: function(x){ if (x) window.__pre = x; return 'none'; } } }; } };
+  </script></body>` }));
+await sb.addInitScript(SCRIPT);
+await sb.goto(base + '/stubs');
+await sb.waitForTimeout(900);
+const sr = await sb.evaluate(() => { const w = document.getElementById('fr').contentWindow; return { ima: window.__imaReady, ad: window.__ad, dyn: window.__dyn, gpt: window.__gpt, trig: window.__trig, pre: document.getElementById('v').preload, vpre: window.__pre, frame: !!w.__lb, cur: !!w.document.getElementById('__lb_cursor'), open: w.open('https://popads.net/y').closed }; });
+check('SDK de IMA sustituido: existe y contesta "sin anuncios" al momento', sr.ima === true && sr.ad === 1009);
+check('SDK de IMA pedido por código: se da por cargado (no se espera)', sr.dyn === 'load');
+check('GPT sustituido: la cola googletag.cmd se ejecuta', sr.gpt === 1);
+check('Video.js esperando anuncio: se cancela la espera', sr.trig.join() === 'adscanceled');
+check('precarga del vídeo principal', sr.pre === 'auto' && sr.vpre === 'auto');
+check('marco propio: el motor actúa dentro y sin cursor duplicado', sr.frame && sr.open === true && !sr.cur);
+
 // Saltador universal: un reproductor cualquiera con anuncio de Google IMA encima del contenido
 const ima = await ctx.newPage();
 ima.on('dialog', (d) => d.dismiss());
@@ -297,7 +328,7 @@ await wt.route(base + '/wait', (route) => route.fulfill({ contentType: 'text/htm
       Object.defineProperty(v, 'currentTime', { get: function(){ return t; }, set: function(x){ t = x; } }); }
     fake('film', 5400); fake('longc', 2700); fake('shortad', 15);
     window.__sdk = null; var s0 = Date.now();
-    var sdk = document.createElement('script'); sdk.onerror = function(){ window.__sdk = Date.now() - s0; };
+    var sdk = document.createElement('script'); sdk.onload = sdk.onerror = function(){ window.__sdk = Date.now() - s0; };
     sdk.src = 'https://imasdk.googleapis.com/js/sdkloader/ima3.js'; document.head.appendChild(sdk);
     window.__xhr = null; var t0 = Date.now();
     var x = new XMLHttpRequest(); x.open('GET', 'https://imasdk.googleapis.com/js/sdkloader/ima3.js');
@@ -316,7 +347,7 @@ check('esperando anuncio (vjs-ad-loading): la película no se adelanta ni se sil
 check('estado "anuncio" con un vídeo largo: no se toca (es contenido)', w.longc === 5);
 check('estado "anuncio" con un vídeo corto: se salta', w.ad > 14 && w.adMuted);
 check('la capa de play del reproductor recibe el clic (no es una trampa)', w.play && w.layer);
-check('<script> del SDK de anuncios bloqueado avisa con error al momento', w.sdk !== null && w.sdk < 200);
+check('<script> del SDK de anuncios bloqueado responde al momento', w.sdk !== null && w.sdk < 200);
 check('XHR bloqueado falla enseguida con error (el reproductor no se queda esperando)', !!w.xhr && w.xhr.state === 4 && w.xhr.ms < 200);
 
 // Webs con Trusted Types (como YouTube): innerHTML lanza excepción; el cursor debe funcionar igual

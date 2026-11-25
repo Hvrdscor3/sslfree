@@ -13,7 +13,8 @@ export const C = {
   ok: '#4ade80',
   okSoft: 'rgba(74,222,128,0.14)',
 };
-export const BAR_H = 76;
+/** Medidas en dp: la TV (1920x1080) trabaja a densidad 2, o sea 960x540 dp. */
+export const BAR_H = 46;
 
 export const ICON = {
   back: require('./assets/icons/back.png'),

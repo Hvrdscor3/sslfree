@@ -9,7 +9,10 @@ Un navegador mínimo para Firestick con Vega OS, pensado para ir rápido en el d
 
 ## Interfaz e icono
 
-- Portada con buscador grande, favoritos con su color, reloj, atajos del mando y lo bloqueado en la sesión.
+- Medidas en dp: la pantalla de la TV son **960×540 dp** (no 1920×1080).
+- Portada con buscador, favoritos, recientes (sólo de la sesión, con botón Borrar), reloj, modo móvil/PC, atajos del mando y lo bloqueado.
+- Pantalla de error con Reintentar, y pantalla completa propia para el vídeo (OK pausa, ←/→ ±10 s, Atrás sale).
+- Arranque de vídeo: precarga del vídeo principal, sustitutos vacíos de los SDK de anuncios (IMA, GPT) y cancelación de la espera de anuncios de Video.js.
 - Barra con iconos dibujados (no dependen de las fuentes de la TV), dirección con el dominio resaltado y candado en HTTPS, contador de bloqueos y barra de carga animada.
 - Icono de la app: `assets/image/app_icon.png` (512×512), declarado en `manifest.toml` con `icon = "@image/app_icon.png"`. También hay un banner de 1280×720 (`assets/image/app_banner.png`), el tamaño que pide la tienda de Fire TV.
 - Los iconos se regeneran con `NODE_PATH=$(npm root -g) node scripts/make-icons.cjs`.
@@ -48,11 +51,11 @@ En Windows el SDK funciona dentro de WSL2 (Ubuntu 22.04, con la virtualización 
 
 ```bash
 npm install
-npm run build:debug                    # genera build/armv7-debug/navegador-ligero_armv7.vpkg (Fire TV Stick)
+npm run build:release                  # genera build/armv7-release/navegador-ligero_armv7.vpkg (Fire TV Stick); build:debug es más lenta
 vega devmode login                     # una vez, con tu cuenta de Amazon Developer
 vega devmode enable-device --code <código que muestra la tele>
 vega device list                       # comprueba que el Firestick aparece
-vega device install-app --packagePath build/armv7-debug/navegador-ligero_armv7.vpkg
+vega device install-app --packagePath build/armv7-release/navegador-ligero_armv7.vpkg
 vega device launch-app --appName com.sslfree.browser.main
 ```
 

@@ -44,7 +44,8 @@ const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'e
 let sw = ctx.serviceWorkers()[0] || await ctx.waitForEvent('serviceworker');
 // espera a que onInstalled registre los scripts de contenido
 for (let i = 0; i < 50; i++) {
-  const n = await sw.evaluate(() => chrome.scripting.getRegisteredContentScripts().then((s) => s.length));
+  // (recién arrancado, el service worker puede no tener aún chrome.scripting)
+  const n = await sw.evaluate(() => (chrome.scripting ? chrome.scripting.getRegisteredContentScripts().then((s) => s.length) : 0));
   if (n === 2) break;
   await new Promise((r) => setTimeout(r, 100));
 }

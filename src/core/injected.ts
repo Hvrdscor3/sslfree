@@ -14,10 +14,15 @@
  *  8. YouTube: pide la mejor calidad disponible hasta 1080p.
  */
 export function buildInjectedScript(hosts: readonly string[], adPathSource = '', tv = true): string {
-  return `(function(){
+  return `(function __lbMain(){
 if (window.__lb) { return; }
 /* tv=false (extensión de Chrome): sin cursor virtual, sin robar el foco a los marcos y sin forzar calidad en YouTube */
 var TV = ${tv ? 'true' : 'false'};
+/* NET: bloqueo de red desde la página (en la extensión lo hace Chrome). Dentro de un marco sólo se bloquea:
+   el cursor y las teclas son cosa de la página principal. */
+var NET = TV, FRAME = false;
+try { FRAME = window !== window.top; } catch(e) { FRAME = true; }
+if (FRAME) TV = false;
 var HOSTS = {};
 ${JSON.stringify(hosts)}.forEach(function(h){ HOSTS[h] = 1; });
 /* peticiones de anuncios de vídeo por su forma (VAST/VMAP, Ad Manager), en cualquier dominio */
@@ -48,7 +53,69 @@ function blocked(u){
 }
 /* Un <script>/<iframe>/<img> bloqueado avisa con 'error' al momento, como si fallara la red: los reproductores
    que esperan al SDK de anuncios (onload/onerror) pasan directamente al vídeo en vez de esperar su tiempo límite. */
-var failSoon = function(el){ setTimeout(function(){ try { el.dispatchEvent(new Event('error')); } catch(e){} }, 0); };
+var failSoon = function(el, u){
+  /* si hay un sustituto vacío del SDK, el script "carga bien" y la web sigue sin anuncios ni esperas */
+  var ok = el.tagName === 'SCRIPT' && surrogate(u);
+  setTimeout(function(){ try { el.dispatchEvent(new Event(ok ? 'load' : 'error')); } catch(e){} }, 0);
+};
+/* Sustitutos: muchos reproductores esperan al SDK de Google IMA (o a GPT) antes de poner el vídeo. El de IMA
+   contesta al momento "no hay anuncio" con el error normal que ya saben tratar. */
+function surrogate(u){
+  u = String(u || '');
+  try {
+    if (/imasdk\\.googleapis\\.com\\/.*ima3/i.test(u)) { imaStub(); return true; }
+    if (/(googletagservices\\.com|doubleclick\\.net)\\/.*gpt\\.js/i.test(u)) { gptStub(); return true; }
+  } catch(e){}
+  return false;
+}
+function imaStub(){
+  var g = window.google = window.google || {}; if (g.ima) return;
+  var nop = function(){};
+  function T(){ this.__l = {}; }
+  T.prototype.addEventListener = function(t, f, o, ctx){ var self = this; [].concat(t).forEach(function(k){ (self.__l[k] = self.__l[k] || []).push(ctx ? f.bind(ctx) : f); }); };
+  T.prototype.removeEventListener = function(t){ delete this.__l[t]; };
+  T.prototype.__fire = function(t, e){ (this.__l[t] || []).forEach(function(f){ try { f(e); } catch(x){} }); };
+  function cls(methods){ var C = function(){}; methods.forEach(function(m){ C.prototype[m] = nop; }); return C; }
+  function Err(){ this.message = 'No ads'; }
+  Err.prototype = { getErrorCode: function(){ return 1009; }, getVastErrorCode: function(){ return 303; }, getType: function(){ return 'adLoadError'; },
+    getMessage: function(){ return this.message; }, getInnerError: function(){ return null; }, toString: function(){ return 'AdError 1009: No ads'; } };
+  Err.ErrorCode = {}; Err.Type = { AD_LOAD: 'adLoadError', AD_PLAY: 'adPlayError' };
+  var Settings = cls(['setAutoPlayAdBreaks', 'setCompanionBackfill', 'setCookiesEnabled', 'setDisableCustomPlaybackForIOS10Plus', 'setDisableFlashAds', 'setFeatureFlags',
+    'setLocale', 'setNumRedirects', 'setPlayerType', 'setPlayerVersion', 'setPpid', 'setSessionId', 'setVpaidAllowed', 'setVpaidMode']);
+  Settings.VpaidMode = { DISABLED: 0, ENABLED: 1, INSECURE: 2 }; Settings.CompanionBackfillMode = { ALWAYS: 'always', ON_MASTER_AD: 'on_master_ad' };
+  ['getCompanionBackfill', 'getDisableCustomPlaybackForIOS10Plus', 'getFeatureFlags', 'getLocale', 'getNumRedirects', 'getPlayerType', 'getPlayerVersion', 'getPpid'].forEach(function(m){ Settings.prototype[m] = function(){ return ''; }; });
+  function Loader(){ T.call(this); this.__s = new Settings(); }
+  Loader.prototype = Object.create(T.prototype);
+  Loader.prototype.requestAds = function(r, ctx){
+    var self = this;
+    setTimeout(function(){ self.__fire('adError', { type: 'adError', getError: function(){ return new Err(); }, getUserRequestContext: function(){ return ctx || {}; } }); }, 0);
+  };
+  Loader.prototype.contentComplete = Loader.prototype.destroy = nop;
+  Loader.prototype.getSettings = function(){ return this.__s; };
+  Loader.prototype.getVersion = function(){ return '3.0.0'; };
+  var ev = {}; ('AD_BREAK_READY AD_BUFFERING AD_CAN_PLAY AD_METADATA AD_PROGRESS ALL_ADS_COMPLETED CLICK COMPLETE CONTENT_PAUSE_REQUESTED CONTENT_RESUME_REQUESTED ' +
+    'DURATION_CHANGE FIRST_QUARTILE IMPRESSION INTERACTION LINEAR_CHANGED LOADED LOG MIDPOINT PAUSED RESUMED SKIPPABLE_STATE_CHANGED SKIPPED STARTED THIRD_QUARTILE USER_CLOSE ' +
+    'VIDEO_CLICKED VIDEO_ICON_CLICKED VOLUME_CHANGED VOLUME_MUTED').split(' ').forEach(function(k){ ev[k] = k.toLowerCase().replace(/_(.)/g, function(m, c){ return c.toUpperCase(); }); });
+  g.ima = { VERSION: '3.0.0', AdsLoader: Loader, AdDisplayContainer: cls(['initialize', 'destroy']), AdsRequest: cls(['setAdWillAutoPlay', 'setAdWillPlayMuted', 'setContinuousPlayback']),
+    AdsRenderingSettings: function(){}, ImaSdkSettings: Settings, settings: new Settings(), AdError: Err, AdErrorEvent: { Type: { AD_ERROR: 'adError' } },
+    AdEvent: { Type: ev }, AdsManagerLoadedEvent: { Type: { ADS_MANAGER_LOADED: 'adsManagerLoaded' } }, ViewMode: { NORMAL: 'normal', FULLSCREEN: 'fullscreen' },
+    UiElements: { AD_ATTRIBUTION: 'adAttribution', COUNTDOWN: 'countdown' }, CompanionAdSelectionSettings: function(){}, OmidAccessMode: {}, OmidVerificationVendor: {} };
+}
+function gptStub(){
+  var gt = window.googletag = window.googletag || {}; if (gt.apiReady) return;
+  var q = gt.cmd || [], chain = function(o, ms){ ms.forEach(function(m){ o[m] = function(){ return o; }; }); return o; };
+  var slot = function(){ var o = chain({}, ['addService', 'defineSizeMapping', 'setTargeting', 'clearTargeting', 'setCollapseEmptyDiv', 'setForceSafeFrame', 'set', 'updateTargetingFromMap', 'setConfig']); o.getSlotElementId = o.getAdUnitPath = function(){ return ''; }; o.getTargeting = function(){ return []; }; return o; };
+  var pa = chain({}, ['addEventListener', 'removeEventListener', 'clearTargeting', 'set', 'setTargeting', 'setCentering', 'collapseEmptyDivs', 'disableInitialLoad', 'enableSingleRequest', 'enableLazyLoad', 'setPrivacySettings', 'setRequestNonPersonalizedAds', 'setPublisherProvidedId', 'setCategoryExclusion', 'enableAsyncRendering', 'enableVideoAds', 'setSafeFrameConfig', 'setForceSafeFrame', 'updateCorrelator', 'refresh', 'clear', 'display']);
+  pa.getSlots = function(){ return []; }; pa.getTargeting = pa.getTargetingKeys = function(){ return []; }; pa.isInitialLoadDisabled = function(){ return true; };
+  gt.apiReady = gt.pubadsReady = true;
+  gt.pubads = gt.companionAds = gt.content = function(){ return pa; };
+  gt.defineSlot = gt.defineOutOfPageSlot = slot;
+  gt.sizeMapping = function(){ var o = chain({}, ['addSize']); o.build = function(){ return []; }; return o; };
+  gt.enableServices = gt.display = gt.disablePublisherConsole = gt.openConsole = gt.setAdIframeTitle = gt.setConfig = function(){};
+  gt.destroySlots = function(){ return true; }; gt.enums = { OutOfPageFormat: {} };
+  gt.cmd = { push: function(){ for (var i = 0; i < arguments.length; i++) { try { arguments[i](); } catch(e){} } return 1; } };
+  for (var i = 0; i < q.length; i++) gt.cmd.push(q[i]);
+}
 var lb = window.__lb = { blocked: function(){ return blockedCount; } };
 
 /* 1. Pop-ups */
@@ -66,7 +133,7 @@ EventTarget.prototype.addEventListener = function(type, fn, opts){
 };
 
 /* 2. Red (en la extensión lo hace Chrome con declarativeNetRequest: no hace falta tocar la página) */
-if (TV) {
+if (NET) {
 if (window.fetch) {
   var of = window.fetch;
   window.fetch = function(input, init){
@@ -97,14 +164,14 @@ function guardSrc(proto, attr){
   var d = proto && Object.getOwnPropertyDescriptor(proto, attr);
   if (!d || !d.set) return;
   Object.defineProperty(proto, attr, { configurable: true, enumerable: d.enumerable, get: d.get,
-    set: function(v){ if (blocked(v)) { failSoon(this); return; } d.set.call(this, v); } });
+    set: function(v){ if (blocked(v)) { failSoon(this, v); return; } d.set.call(this, v); } });
 }
 guardSrc(window.HTMLScriptElement && HTMLScriptElement.prototype, 'src');
 guardSrc(window.HTMLIFrameElement && HTMLIFrameElement.prototype, 'src');
 guardSrc(window.HTMLImageElement && HTMLImageElement.prototype, 'src');
 var osa = Element.prototype.setAttribute;
 Element.prototype.setAttribute = function(n, v){
-  if ((n === 'src' || n === 'href') && /^(SCRIPT|IFRAME|IMG|LINK)$/.test(this.tagName) && blocked(v)) { failSoon(this); return; }
+  if ((n === 'src' || n === 'href') && /^(SCRIPT|IFRAME|IMG|LINK)$/.test(this.tagName) && blocked(v)) { failSoon(this, v); return; }
   return osa.call(this, n, v);
 };
 }
@@ -147,7 +214,7 @@ if (IS_YT) {
 /* 10. Saltador universal de anuncios de vídeo. Reconoce el estado "anuncio" de los reproductores más usados
    (YouTube, Google IMA, Video.js, JW Player, Bitmovin, Flowplayer, Clappr, Brightcove...) y, mientras dura:
    pulsa "Saltar", silencia el vídeo del anuncio y lo lleva al final. Sólo trabaja si la página tiene vídeos. */
-var AD_STATE = '.html5-video-player.ad-showing,.html5-video-player.ad-interrupting,.vjs-ad-playing,.vjs-ad-loading,' +
+var AD_STATE = '.html5-video-player.ad-showing,.html5-video-player.ad-interrupting,.vjs-ad-playing,' +
   '.jw-flag-ads,.jw-flag-ads-vpaid,.bmpui-ui-skin-ads,.bmpui-player-state-ad,.fp-is-ad,.is-ad-playing,.ad-playing,' +
   '[data-ad-playing="true"],.bc-player-ad-playing';
 /* (sin .vjs-ad-loading ni .vjs-ad-content-resuming: ahí el <video> es el CONTENIDO esperando a un anuncio
@@ -172,9 +239,33 @@ function fastForwardAd(v, sure){
   if (isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 0.3) { try { v.currentTime = v.duration - 0.1; } catch(e){} bump(); }
   return true;
 }
+/* Precarga: muchos reproductores no piden nada hasta pulsar play (preload="none"), y en la TV eso son varios
+   segundos de espera. Si la página tiene un vídeo principal, se le dice que vaya cargando. */
+function warm(){
+  if (!NET || IS_YT) return;
+  var vs = document.getElementsByTagName('video');
+  if (!vs.length || vs.length > 3) return; /* listados con previsualizaciones: no */
+  var v = mainVideo(); if (!v || v.__lbWarm || !v.paused) return;
+  var r = v.getBoundingClientRect();
+  if (r.width * r.height < innerWidthSafe() * 0.08) return;
+  v.__lbWarm = 1;
+  v.preload = 'auto';
+  /* Video.js lo devuelve a "none" al preparar la fuente (y entonces HLS no pide nada hasta el play): se fija */
+  try { Object.defineProperty(v, 'preload', { configurable: true, get: function(){ return 'auto'; }, set: function(){} }); } catch(e){}
+  eachVjs(function(p){ if (p.preload && p.preload() !== 'auto') p.preload('auto'); });
+}
+function innerWidthSafe(){ return (document.documentElement.clientWidth || 1) * (document.documentElement.clientHeight || 1); }
+function eachVjs(fn){
+  try { var vj = window.videojs, ps = vj && (vj.getPlayers ? vj.getPlayers() : vj.players); for (var k in ps) if (ps[k]) { try { fn(ps[k]); } catch(e){} } } catch(e){}
+}
 function skipAds(){
   if (!document.getElementsByTagName('video').length) return;
+  warm();
   var acted = false, i, j, list;
+  /* Video.js esperando a un anuncio que ya está bloqueado (hasta 5 s por defecto): se le dice que no hay */
+  if (document.querySelector('.vjs-ad-loading')) eachVjs(function(p){
+    if (p.hasClass && p.hasClass('vjs-ad-loading') && !(p.__lbCancel > Date.now() - 1500)) { p.__lbCancel = Date.now(); p.trigger('adscanceled'); }
+  });
   /* reproductores en estado "anuncio": el propio vídeo del reproductor es el anuncio */
   list = document.querySelectorAll(AD_STATE);
   for (i = 0; i < list.length; i++) {
@@ -235,17 +326,29 @@ function addStyle(){
 function clean(node){
   if (!node || node.nodeType !== 1) return;
   var t = node.tagName;
-  if ((t === 'SCRIPT' || t === 'IFRAME' || t === 'IMG') && blocked(node.getAttribute('src'))) { node.remove(); failSoon(node); return; }
+  if (t === 'SCRIPT' || t === 'IFRAME' || t === 'IMG') {
+    var src = node.getAttribute('src');
+    if (blocked(src)) { node.remove(); failSoon(node, src); return; }
+    if (t === 'IFRAME') hookFrame(node);
+  }
   if (t === 'A' && node.getAttribute('target') === '_blank') node.setAttribute('target', '_self');
   if (node.querySelectorAll && node.firstElementChild) {
-    var list = node.querySelectorAll('script[src],iframe[src],img[src],a[target="_blank"]');
+    var list = node.querySelectorAll('script[src],iframe,img[src],a[target="_blank"]');
     for (var i = 0; i < list.length; i++) clean(list[i]);
   }
 }
+/* Igual que la extensión (allFrames): el motor se mete también en los marcos de la propia web (srcdoc, about:blank,
+   mismo dominio), que es donde muchas webs montan sus anuncios y pop-ups. A los de otro dominio no se puede entrar. */
+var SELF_SRC = '(' + __lbMain.toString() + ')()';
+function hookFrame(fr){
+  if (!NET) return;
+  try { var w = fr.contentWindow; if (w && !w.__lb && w.document) w.eval(SELF_SRC); } catch(e){}
+}
+document.addEventListener('load', function(e){ if (e.target && e.target.tagName === 'IFRAME') hookFrame(e.target); }, true);
 var pending = [];
 var scheduled = false;
-function flush(){ scheduled = false; var p = pending; pending = []; for (var i = 0; i < p.length; i++) clean(p[i]); }
-if (TV) new MutationObserver(function(muts){
+function flush(){ scheduled = false; var p = pending; pending = []; for (var i = 0; i < p.length; i++) clean(p[i]); warm(); }
+if (NET) new MutationObserver(function(muts){
   for (var i = 0; i < muts.length; i++) {
     var a = muts[i].addedNodes;
     for (var j = 0; j < a.length; j++) {
@@ -301,7 +404,15 @@ lb.video = function(){
   var v = mainVideo();
   if (!v) { post('toast', 'No hay vídeo en esta página'); return; }
   var box = (v.closest && v.closest('.html5-video-player,#movie_player,.video-js,.jwplayer,.plyr,.fp-player,.bitmovinplayer-container')) || v;
-  lb.fs = { box: box, v: v, boxStyle: box.getAttribute('style'), vStyle: v.getAttribute('style') };
+  lb.fs = { box: box, v: v, boxStyle: box.getAttribute('style'), vStyle: v.getAttribute('style'), hid: [] };
+  /* lo que no sea el reproductor (cabeceras fijas, barras...) puede quedar por encima: se oculta mientras dura */
+  for (var n = box; n && n !== document.body && n.parentElement; n = n.parentElement) {
+    var sib = n.parentElement.children;
+    for (var i = 0; i < sib.length; i++) if (sib[i] !== n && sib[i].style && !/^(SCRIPT|STYLE|LINK|HEAD)$/.test(sib[i].tagName) && sib[i].id !== '__lb_cursor') {
+      lb.fs.hid.push([sib[i], sib[i].style.getPropertyValue('visibility'), sib[i].style.getPropertyPriority('visibility')]);
+      sib[i].style.setProperty('visibility', 'hidden', 'important');
+    }
+  }
   box.setAttribute('style', (lb.fs.boxStyle || '') + ';' + FS_STYLE);
   if (box !== v) v.setAttribute('style', (lb.fs.vStyle || '') + ';width:100%!important;height:100%!important;left:0!important;top:0!important;object-fit:contain!important');
   try { window.dispatchEvent(new Event('resize')); } catch(e){}
@@ -312,23 +423,34 @@ lb.video = function(){
 lb.exitVideo = function(){
   var f = lb.fs; if (!f) return;
   lb.fs = null;
+  f.hid.forEach(function(h){ if (h[1]) h[0].style.setProperty('visibility', h[1], h[2]); else h[0].style.removeProperty('visibility'); });
   if (f.boxStyle === null) f.box.removeAttribute('style'); else f.box.setAttribute('style', f.boxStyle);
   if (f.box !== f.v) { if (f.vStyle === null) f.v.removeAttribute('style'); else f.v.setAttribute('style', f.vStyle); }
   try { window.dispatchEvent(new Event('resize')); } catch(e){}
   post('fullscreen', false);
   curDraw();
 };
-window.addEventListener('keydown', function(e){
-  var f = fsEl(); if (!f) return;
-  var v = f.tagName === 'VIDEO' ? f : f.querySelector('video'); if (!v) return;
-  var k = e.key, used = true;
+var fsLast = '', fsTime = 0;
+/* Teclas del vídeo a pantalla completa. Pueden llegar por la página o, si ésta no tiene el foco, por la app (lb.fsKey):
+   la misma tecla dos veces seguidas en un instante es la misma pulsación. */
+function fsHandle(k){
+  var f = fsEl(); if (!f) return false;
+  var v = f.tagName === 'VIDEO' ? f : f.querySelector('video'); if (!v) return false;
+  var now = Date.now();
+  if (k === fsLast && now - fsTime < 90) return true;
+  fsLast = k; fsTime = now;
+  var used = true;
   if (k === 'Enter' || k === ' ' || k === 'MediaPlayPause') { v.paused ? v.play() : v.pause(); }
   else if (k === 'ArrowRight' || k === 'MediaFastForward') { v.currentTime = Math.min(v.duration || 1e9, v.currentTime + 10); }
   else if (k === 'ArrowLeft' || k === 'MediaRewind') { v.currentTime = Math.max(0, v.currentTime - 10); }
   else if (k === 'ArrowUp') { v.volume = Math.min(1, v.volume + 0.1); }
   else if (k === 'ArrowDown') { v.volume = Math.max(0, v.volume - 0.1); }
   else used = false;
-  if (used) { e.preventDefault(); e.stopPropagation(); }
+  return used;
+}
+lb.fsKey = fsHandle;
+window.addEventListener('keydown', function(e){
+  if (fsHandle(e.key)) { e.preventDefault(); e.stopPropagation(); }
 }, true);
 document.addEventListener('fullscreenchange', function(){ post('fullscreen', !!fsEl()); });
 
