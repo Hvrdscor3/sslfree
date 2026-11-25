@@ -105,6 +105,15 @@ await page.waitForTimeout(1800);
 const deltas = await sw.evaluate(() => globalThis.__deltas);
 check(`el script suma bloqueos al contador del icono (${deltas})`, deltas > 0);
 
+// Una página (aunque esté comprometida) no puede desactivar el bloqueo: sólo el menú del icono
+await page.evaluate(() => window.dispatchEvent(new CustomEvent('__lb_msg', { detail: JSON.stringify({ type: 'setSite', site: 'site.test', enabled: false }) })));
+const fromTab = await sw.evaluate(async () => {
+  // simula un mensaje que llega desde un script de contenido de una pestaña
+  const [t] = await chrome.tabs.query({ url: '*://site.test/*' });
+  return t ? (await chrome.storage.local.get('allow')).allow || [] : null;
+});
+check('una página no puede desactivar el bloqueo', Array.isArray(fromTab) && fromTab.length === 0);
+
 // Desactivar en el sitio desde el popup: todo vuelve a cargar
 const page2 = await ctx.newPage();
 // usa el flujo real del popup

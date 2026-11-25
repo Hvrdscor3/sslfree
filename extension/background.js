@@ -57,11 +57,15 @@ chrome.runtime.onStartup.addListener(apply);
 /* Contador del icono: lo que bloquea la red (automático) + lo que bloquea el script de la página. */
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg?.type === 'blocked' && sender.tab?.id >= 0) {
+    // sólo suma al contador; con tope para que una página no pueda inflarlo
     chrome.declarativeNetRequest.setExtensionActionOptions({
-      tabUpdate: { tabId: sender.tab.id, increment: Math.max(1, msg.delta | 0) },
+      tabUpdate: { tabId: sender.tab.id, increment: Math.min(50, Math.max(1, msg.delta | 0)) },
     }).catch(() => {});
     return;
   }
+  // Activar/desactivar sitios: sólo desde el menú del icono (popup.html), nunca desde una página
+  if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('popup.html')) return;
+  if (typeof msg?.site !== 'string' || !/^[a-z0-9.-]{1,253}$/.test(msg.site)) return;
   if (msg?.type === 'getSite') {
     getAllow().then((allow) => reply({ site: msg.site, enabled: !allow.includes(msg.site) }));
     return true;
